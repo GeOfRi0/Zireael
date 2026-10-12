@@ -1,0 +1,6 @@
+{
+  "name": "Zireael",
+  "description": "Yüksek hızlı internet indirme yöneticisi - video, fotoğraf ve dosyaları çoklu bağlantı hızlandırması ile otomatik indirip kaydeder.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

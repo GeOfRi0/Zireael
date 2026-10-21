@@ -112,7 +112,7 @@ fun AddDownloadDialog(
                                     }
                                 ) {
                                     Icon(
-                                        imageVector = androidx.compose.material.icons.filled.Close.let { Icons.Default.Close },
+                                        imageVector = Icons.Default.Close,
                                         contentDescription = "Temizle"
                                     )
                                 }

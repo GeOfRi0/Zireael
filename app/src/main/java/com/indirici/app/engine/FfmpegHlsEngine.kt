@@ -156,8 +156,10 @@ class FfmpegHlsEngine(
                         val speed = (deltaBytes * 1000L) / elapsedMs
                         lastReportTimeMs = now
                         lastReportedBytes = currentBytes
-                        runBlocking {
-                            onProgress(currentBytes, task.totalBytes, speed)
+                        runCatching {
+                            runBlocking {
+                                onProgress(currentBytes, task.totalBytes, speed)
+                            }
                         }
                     }
                 }

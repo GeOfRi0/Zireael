@@ -194,8 +194,10 @@ class MediaEngine(
                     }
                     val speed = parseSpeedFromYtDlpLine(line)
 
-                    kotlinx.coroutines.runBlocking {
-                        onProgress(downloaded, knownTotal, speed)
+                    runCatching {
+                        kotlinx.coroutines.runBlocking {
+                            onProgress(downloaded, knownTotal, speed)
+                        }
                     }
                 }
             }

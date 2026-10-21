@@ -61,14 +61,16 @@ class VideoDownloadService : Service() {
         }
 
         val ongoingNotification = buildProgressNotification("Video indiriliyor...")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                ONGOING_NOTIFICATION_ID,
-                ongoingNotification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
-        } else {
-            startForeground(ONGOING_NOTIFICATION_ID, ongoingNotification)
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    ONGOING_NOTIFICATION_ID,
+                    ongoingNotification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                )
+            } else {
+                startForeground(ONGOING_NOTIFICATION_ID, ongoingNotification)
+            }
         }
 
         executeFfmpegDownload(task, startId)

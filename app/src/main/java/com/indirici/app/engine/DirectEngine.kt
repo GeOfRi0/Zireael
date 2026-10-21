@@ -10,6 +10,7 @@ import com.indirici.app.domain.model.EngineType
 import com.indirici.app.domain.model.UrlMetadata
 import com.indirici.app.domain.security.EphemeralSessionStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -70,7 +71,7 @@ class DirectEngine(
 
             // Eğer yanıt bir HLS (.m3u8) manifestiyse içeriğin ilk kısmını okuyup DRM ve H.265/AAC/fMP4 kontrolü yap
             if (MediaFileDetector.isHlsManifestUrl(resolvedUrl, mimeType)) {
-                val sampleText = response.body?.string().orEmpty()
+                val sampleText = readBodyPreview(response)
                 val hlsInspection = MediaFileDetector.inspectHlsManifest(resolvedUrl, sampleText)
                 val baseName = extractFileName(
                     contentDisposition = response.header("Content-Disposition"),
@@ -99,7 +100,7 @@ class DirectEngine(
 
             // Eğer yanıt bir HTML sayfasıysa ve içinde doğrudan medya linki (.wav, .flac, .mkv, .m3u8, .m4s vb.) gömülüyse yakala
             if (mimeType?.contains("text/html", ignoreCase = true) == true) {
-                val htmlSample = response.body?.string().orEmpty()
+                val htmlSample = readBodyPreview(response)
                 val sniffedLinks = MediaFileDetector.extractMediaLinksFromContent(htmlSample, resolvedUrl)
                 val firstDirectMedia = sniffedLinks.firstOrNull()
                 if (firstDirectMedia != null && firstDirectMedia != url) {
@@ -248,6 +249,7 @@ class DirectEngine(
 
         onProgress(initialDownloaded, totalBytes, 0L)
 
+        val totalChunkCount = chunks.size
         coroutineScope {
             chunks.filter { !it.isCompleted }.map { chunk ->
                 async(Dispatchers.IO) {
@@ -256,6 +258,7 @@ class DirectEngine(
                         url = effectiveUrl,
                         tempFile = tempFile,
                         chunk = chunk,
+                        totalChunkCount = totalChunkCount,
                         supportsRange = supportsRange,
                         totalBytes = totalBytes,
                         globalDownloaded = globalDownloaded,
@@ -297,6 +300,7 @@ class DirectEngine(
         url: String,
         tempFile: File,
         chunk: DownloadChunkEntity,
+        totalChunkCount: Int,
         supportsRange: Boolean,
         totalBytes: Long,
         globalDownloaded: AtomicLong,
@@ -317,81 +321,95 @@ class DirectEngine(
             }
         }
 
-        okHttpClient.newCall(request).execute().use { response ->
-            DrmDetector.assertNotDrm(
-                url = response.request.url.toString(),
-                mimeType = response.header("Content-Type"),
-                headers = response.headers.toMultimap()
-            )
-
-            if (!response.isSuccessful) {
-                throw IOException("Parça ${chunk.chunkIndex + 1} indirilemedi: HTTP ${response.code}")
+        val call = okHttpClient.newCall(request)
+        val cancelHandle = coroutineContext[Job]?.invokeOnCompletion { cause ->
+            if (cause != null) {
+                runCatching { call.cancel() }
             }
+        }
 
-            val body = response.body ?: throw IOException("Sunucudan boş yanıt döndü")
+        try {
+            call.execute().use { response ->
+                DrmDetector.assertNotDrm(
+                    url = response.request.url.toString(),
+                    mimeType = response.header("Content-Type"),
+                    headers = response.headers.toMultimap()
+                )
 
-            val writeStartOffset = if (supportsRange && response.code == 206) {
-                currentStart
-            } else if (chunk.chunkIndex == 0) {
-                globalDownloaded.addAndGet(-chunkDownloaded)
-                chunkDownloaded = 0L
-                0L
-            } else {
-                throw IOException("Sunucu çoklu parça (HTTP 206) isteğini reddetti")
-            }
+                if (!response.isSuccessful) {
+                    throw IOException("Parça ${chunk.chunkIndex + 1} indirilemedi: HTTP ${response.code}")
+                }
 
-            RandomAccessFile(tempFile, "rw").use { raf ->
-                raf.seek(writeStartOffset)
-                body.byteStream().use { inputStream ->
-                    val buffer = ByteArray(32 * 1024)
-                    var lastDbSyncMs = System.currentTimeMillis()
+                val body = response.body ?: throw IOException("Sunucudan boş yanıt döndü")
 
-                    while (true) {
-                        coroutineContext.ensureActive()
-                        val bytesRead = inputStream.read(buffer)
-                        if (bytesRead == -1) break
+                val writeStartOffset = if (supportsRange && response.code == 206) {
+                    currentStart
+                } else if (chunk.chunkIndex == 0 && totalChunkCount == 1) {
+                    globalDownloaded.addAndGet(-chunkDownloaded)
+                    chunkDownloaded = 0L
+                    0L
+                } else {
+                    throw IOException("Sunucu çoklu parça (HTTP 206) isteğini reddetti")
+                }
 
-                        val maxAllowed = if (supportsRange && chunk.endByte >= 0L) {
-                            val remaining = (chunk.endByte - chunk.startByte + 1L) - chunkDownloaded
-                            bytesRead.toLong().coerceAtMost(remaining).toInt()
-                        } else {
-                            bytesRead
-                        }
+                RandomAccessFile(tempFile, "rw").use { raf ->
+                    raf.seek(writeStartOffset)
+                    body.byteStream().use { inputStream ->
+                        val buffer = ByteArray(32 * 1024)
+                        var lastDbSyncMs = System.currentTimeMillis()
 
-                        if (maxAllowed <= 0) break
+                        while (true) {
+                            coroutineContext.ensureActive()
+                            val bytesRead = inputStream.read(buffer)
+                            if (bytesRead == -1) break
 
-                        raf.write(buffer, 0, maxAllowed)
-                        chunkDownloaded += maxAllowed
-                        globalDownloaded.addAndGet(maxAllowed.toLong())
+                            val maxAllowed = if (supportsRange && chunk.endByte >= 0L) {
+                                val remaining = (chunk.endByte - chunk.startByte + 1L) - chunkDownloaded
+                                bytesRead.toLong().coerceAtMost(remaining).toInt()
+                            } else {
+                                bytesRead
+                            }
 
-                        val now = System.currentTimeMillis()
-                        if (now - lastDbSyncMs >= 400L) {
-                            lastDbSyncMs = now
-                            downloadDao.updateChunkProgress(
-                                taskId = taskId,
-                                chunkIndex = chunk.chunkIndex,
-                                downloadedBytes = chunkDownloaded,
-                                isCompleted = false
-                            )
-                        }
+                            if (maxAllowed <= 0) break
 
-                        onChunkBytesRead()
+                            raf.write(buffer, 0, maxAllowed)
+                            chunkDownloaded += maxAllowed
+                            globalDownloaded.addAndGet(maxAllowed.toLong())
 
-                        if (supportsRange && chunk.endByte >= 0L &&
-                            chunkDownloaded >= (chunk.endByte - chunk.startByte + 1L)
-                        ) {
-                            break
+                            val now = System.currentTimeMillis()
+                            if (now - lastDbSyncMs >= 400L) {
+                                lastDbSyncMs = now
+                                downloadDao.updateChunkProgress(
+                                    taskId = taskId,
+                                    chunkIndex = chunk.chunkIndex,
+                                    downloadedBytes = chunkDownloaded,
+                                    isCompleted = false
+                                )
+                            }
+
+                            onChunkBytesRead()
+
+                            if (supportsRange && chunk.endByte >= 0L &&
+                                chunkDownloaded >= (chunk.endByte - chunk.startByte + 1L)
+                            ) {
+                                break
+                            }
                         }
                     }
                 }
-            }
 
-            downloadDao.updateChunkProgress(
-                taskId = taskId,
-                chunkIndex = chunk.chunkIndex,
-                downloadedBytes = chunkDownloaded,
-                isCompleted = true
-            )
+                downloadDao.updateChunkProgress(
+                    taskId = taskId,
+                    chunkIndex = chunk.chunkIndex,
+                    downloadedBytes = chunkDownloaded,
+                    isCompleted = true
+                )
+            }
+        } catch (e: IOException) {
+            coroutineContext.ensureActive()
+            throw e
+        } finally {
+            cancelHandle?.dispose()
         }
     }
 
@@ -413,6 +431,15 @@ class DirectEngine(
 
         builder.block()
         return builder.build()
+    }
+
+    private fun readBodyPreview(response: okhttp3.Response, maxBytes: Long = 65_536L): String {
+        val source = response.body?.source() ?: return ""
+        return runCatching {
+            source.request(maxBytes)
+            val toRead = minOf(source.buffer.size, maxBytes)
+            source.buffer.clone().readString(toRead, Charsets.UTF_8)
+        }.getOrDefault("")
     }
 
     private fun parseTotalBytesFromContentRange(contentRange: String?): Long {

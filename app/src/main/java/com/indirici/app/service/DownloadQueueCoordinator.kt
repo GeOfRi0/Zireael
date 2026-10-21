@@ -22,6 +22,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -361,6 +362,7 @@ class DownloadQueueCoordinator(
             } catch (ce: CancellationException) {
                 throw ce
             } catch (drm: DrmProtectedException) {
+                coroutineContext.ensureActive()
                 ephemeralSessionStore.clearSession(taskId)
                 downloadDao.updateTaskStatus(
                     taskId = taskId,
@@ -368,6 +370,13 @@ class DownloadQueueCoordinator(
                     errorMessage = DrmProtectedException.DRM_UNSUPPORTED_MESSAGE
                 )
             } catch (e: Exception) {
+                coroutineContext.ensureActive()
+                val latest = downloadDao.getTaskById(taskId)
+                if (latest?.status == DownloadStatus.PAUSED.name ||
+                    latest?.status == DownloadStatus.CANCELED.name
+                ) {
+                    return@launch
+                }
                 ephemeralSessionStore.clearSession(taskId)
                 downloadDao.updateTaskStatus(
                     taskId = taskId,

@@ -18,12 +18,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import com.indirici.app.ui.theme.AppIcons
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -119,7 +117,7 @@ fun MainScreen(viewModel: MainViewModel) {
                     actions = {
                         IconButton(onClick = { showMiniBrowser = true }) {
                             Icon(
-                                imageVector = Icons.Default.Language,
+                                imageVector = AppIcons.Language,
                                 contentDescription = "Mini Tarayıcı (Video Yakalayıcı)"
                             )
                         }
@@ -155,7 +153,7 @@ fun MainScreen(viewModel: MainViewModel) {
                     onClick = { showMiniBrowser = true },
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
                     contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    icon = { Icon(Icons.Default.Language, contentDescription = null) },
+                    icon = { Icon(AppIcons.Language, contentDescription = null) },
                     text = { Text("Tarayıcı ile Yakala") }
                 )
                 ExtendedFloatingActionButton(
@@ -267,7 +265,7 @@ private fun EmptyStateView(modifier: Modifier = Modifier) {
             modifier = Modifier.padding(32.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.Download,
+                imageVector = AppIcons.Download,
                 contentDescription = null,
                 modifier = Modifier.size(56.dp),
                 tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
@@ -394,7 +392,7 @@ private fun DownloadItemCard(
                                 modifier = Modifier.size(34.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Pause,
+                                    imageVector = AppIcons.Pause,
                                     contentDescription = "Duraklat",
                                     modifier = Modifier.size(18.dp)
                                 )

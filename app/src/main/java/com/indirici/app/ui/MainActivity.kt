@@ -29,12 +29,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestNecessaryPermissionsIfNeeded()
 
         setContent {
             IndiriciTheme {
                 MainScreen(viewModel = viewModel)
             }
+        }
+
+        window.decorView.post {
+            runCatching { requestNecessaryPermissionsIfNeeded() }
         }
     }
 

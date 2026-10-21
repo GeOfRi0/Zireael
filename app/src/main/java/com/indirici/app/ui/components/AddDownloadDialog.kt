@@ -12,12 +12,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AudioFile
-import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.VerifiedUser
-import androidx.compose.material.icons.filled.VideoFile
+import com.indirici.app.ui.theme.AppIcons
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -115,7 +111,7 @@ fun AddDownloadDialog(
                             }
                         ) {
                             Icon(
-                                imageVector = Icons.Default.ContentPaste,
+                                imageVector = AppIcons.ContentPaste,
                                 contentDescription = "Panodan Yapıştır"
                             )
                         }
@@ -131,7 +127,7 @@ fun AddDownloadDialog(
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Security,
+                            imageVector = AppIcons.Security,
                             contentDescription = null,
                             modifier = Modifier.size(16.dp)
                         )
@@ -175,7 +171,7 @@ fun AddDownloadDialog(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = Icons.Default.VerifiedUser,
+                                imageVector = AppIcons.VerifiedUser,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
                                 modifier = Modifier.size(18.dp)
@@ -384,7 +380,7 @@ private fun FormatOptionRow(
                 onClick = onSelect
             )
             Icon(
-                imageVector = if (option.isAudioOnly) Icons.Default.AudioFile else Icons.Default.VideoFile,
+                imageVector = if (option.isAudioOnly) AppIcons.AudioFile else AppIcons.VideoFile,
                 contentDescription = null,
                 modifier = Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.primary

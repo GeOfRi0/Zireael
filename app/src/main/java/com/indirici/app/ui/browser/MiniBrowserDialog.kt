@@ -25,11 +25,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.VerifiedUser
+import com.indirici.app.ui.theme.AppIcons
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -354,7 +353,7 @@ private fun DetectedVideoBottomSheetPanel(
                     Spacer(modifier = Modifier.width(8.dp))
                     FilledTonalButton(onClick = onVerifyCloudflareClick) {
                         Icon(
-                            imageVector = Icons.Default.VerifiedUser,
+                            imageVector = AppIcons.VerifiedUser,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp)
                         )
@@ -415,7 +414,7 @@ private fun DetectedVideoBottomSheetPanel(
                                     if (!task.isDrmProtected) {
                                         Button(onClick = { onDownloadClick(task) }) {
                                             Icon(
-                                                imageVector = Icons.Default.Download,
+                                                imageVector = AppIcons.Download,
                                                 contentDescription = null,
                                                 modifier = Modifier.size(18.dp)
                                             )

@@ -15,5 +15,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "AndroidIndirici"
+rootProject.name = "Zireael"
 include(":app")

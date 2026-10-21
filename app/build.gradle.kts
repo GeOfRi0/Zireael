@@ -10,21 +10,26 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.aistudio.idmdownloader.vqkrt"
+        applicationId = "com.zireael.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
+        versionCode = 200
         versionName = "2.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            isShrinkResources = false
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -50,7 +55,6 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
         jniLibs {
-            // youtubedl-android ve FFmpegKit ikili dosyalarının birlikte sorunsuz paketlenmesi için
             useLegacyPackaging = true
             pickFirsts += setOf("**/*.so")
         }
@@ -74,7 +78,6 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // Coroutines

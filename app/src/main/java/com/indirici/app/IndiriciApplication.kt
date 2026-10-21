@@ -10,37 +10,22 @@ import com.indirici.app.engine.EngineRouter
 import com.indirici.app.engine.FfmpegHlsEngine
 import com.indirici.app.engine.MediaEngine
 import com.indirici.app.service.DownloadQueueCoordinator
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 
 class IndiriciApplication : Application() {
 
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val database: AppDatabase by lazy {
+        AppDatabase.getInstance(this)
+    }
 
-    lateinit var database: AppDatabase
-        private set
+    val settingsRepository: SettingsRepository by lazy {
+        SettingsRepository(this)
+    }
 
-    lateinit var settingsRepository: SettingsRepository
-        private set
+    val ephemeralSessionStore: EphemeralSessionStore by lazy {
+        EphemeralSessionStore()
+    }
 
-    lateinit var ephemeralSessionStore: EphemeralSessionStore
-        private set
-
-    lateinit var engineRouter: EngineRouter
-        private set
-
-    lateinit var queueCoordinator: DownloadQueueCoordinator
-        private set
-
-    override fun onCreate() {
-        super.onCreate()
-
-        database = AppDatabase.getInstance(this)
-        settingsRepository = SettingsRepository(this)
-        ephemeralSessionStore = EphemeralSessionStore()
-
+    val engineRouter: EngineRouter by lazy {
         val fileSaver = DownloadsFileSaver(this)
         val directEngine = DirectEngine(
             context = this,
@@ -60,18 +45,15 @@ class IndiriciApplication : Application() {
             fileSaver = fileSaver,
             ephemeralSessionStore = ephemeralSessionStore
         )
-
-        appScope.launch {
-            runCatching { mediaEngine.ensureInitialized() }
-        }
-
-        engineRouter = EngineRouter(
+        EngineRouter(
             directEngine = directEngine,
             mediaEngine = mediaEngine,
             ffmpegHlsEngine = ffmpegHlsEngine
         )
+    }
 
-        queueCoordinator = DownloadQueueCoordinator(
+    val queueCoordinator: DownloadQueueCoordinator by lazy {
+        DownloadQueueCoordinator(
             appContext = this,
             downloadDao = database.downloadDao(),
             settingsRepository = settingsRepository,

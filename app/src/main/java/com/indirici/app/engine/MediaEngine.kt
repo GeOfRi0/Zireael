@@ -173,16 +173,25 @@ class MediaEngine(
         }
 
         var lastReportMs = 0L
+        var dynamicTotalBytes = task.totalBytes.takeIf { it > 0L } ?: -1L
 
         try {
             YoutubeDL.getInstance().execute(request, processId) { progressPercent, _, line ->
                 DrmDetector.assertNotDrmInErrorMessage(line)
+                val parsedTotal = parseTotalBytesFromYtDlpLine(line)
+                if (parsedTotal > 0L) {
+                    dynamicTotalBytes = parsedTotal
+                }
                 val now = System.currentTimeMillis()
                 if (now - lastReportMs >= 300L) {
                     lastReportMs = now
                     val safePercent = progressPercent.coerceIn(0f, 100f)
-                    val knownTotal = task.totalBytes.takeIf { it > 0L } ?: 100L
-                    val downloaded = ((safePercent / 100f) * knownTotal.toFloat()).toLong()
+                    val knownTotal = if (dynamicTotalBytes > 0L) dynamicTotalBytes else 0L
+                    val downloaded = if (knownTotal > 0L) {
+                        ((safePercent / 100f) * knownTotal.toFloat()).toLong()
+                    } else {
+                        0L
+                    }
                     val speed = parseSpeedFromYtDlpLine(line)
 
                     kotlinx.coroutines.runBlocking {
@@ -378,21 +387,34 @@ class MediaEngine(
             .maxByOrNull { it.length() }
     }
 
-    internal fun parseSpeedFromYtDlpLine(line: String?): Long {
-        if (line.isNullOrBlank()) return 0L
-        val match = SPEED_REGEX.find(line) ?: return 0L
-        val value = match.groupValues[1].toDoubleOrNull() ?: return 0L
-        val unit = match.groupValues[2].uppercase()
-        val multiplier = when (unit) {
-            "KIB", "KB" -> 1024.0
-            "MIB", "MB" -> 1024.0 * 1024.0
-            "GIB", "GB" -> 1024.0 * 1024.0 * 1024.0
-            else -> 1.0
-        }
-        return (value * multiplier).toLong()
-    }
-
     companion object {
         private val SPEED_REGEX = Regex("at\\s+([0-9.]+)\\s*([KMG]i?B)/s", RegexOption.IGNORE_CASE)
+        private val TOTAL_SIZE_REGEX = Regex("of\\s+~?\\s*([0-9.]+)\\s*([KMG]i?B)", RegexOption.IGNORE_CASE)
+
+        internal fun parseSpeedFromYtDlpLine(line: String?): Long {
+            if (line.isNullOrBlank()) return 0L
+            val match = SPEED_REGEX.find(line) ?: return 0L
+            val value = match.groupValues[1].toDoubleOrNull() ?: return 0L
+            val unit = match.groupValues[2].uppercase()
+            return convertToBytes(value, unit)
+        }
+
+        internal fun parseTotalBytesFromYtDlpLine(line: String?): Long {
+            if (line.isNullOrBlank()) return -1L
+            val match = TOTAL_SIZE_REGEX.find(line) ?: return -1L
+            val value = match.groupValues[1].toDoubleOrNull() ?: return -1L
+            val unit = match.groupValues[2].uppercase()
+            return convertToBytes(value, unit)
+        }
+
+        private fun convertToBytes(value: Double, unit: String): Long {
+            val multiplier = when (unit) {
+                "KIB", "KB" -> 1024.0
+                "MIB", "MB" -> 1024.0 * 1024.0
+                "GIB", "GB" -> 1024.0 * 1024.0 * 1024.0
+                else -> 1.0
+            }
+            return (value * multiplier).toLong()
+        }
     }
 }

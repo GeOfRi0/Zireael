@@ -92,4 +92,11 @@ class FfmpegAndSnifferTest {
         assertFalse(dump.contains("SecretUserAgent"))
         assertTrue(dump.contains("[REDACTED]"))
     }
+
+    @Test
+    fun `MediaEngine parses total size and speed from yt-dlp progress line`() {
+        val line = "[download]  45.2% of ~ 50.00MiB at    4.00MiB/s ETA 00:07"
+        assertEquals(50L * 1024L * 1024L, MediaEngine.parseTotalBytesFromYtDlpLine(line))
+        assertEquals(4L * 1024L * 1024L, MediaEngine.parseSpeedFromYtDlpLine(line))
+    }
 }

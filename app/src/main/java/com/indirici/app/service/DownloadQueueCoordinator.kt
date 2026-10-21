@@ -47,6 +47,14 @@ class DownloadQueueCoordinator(
 
     init {
         scope.launch {
+            runCatching {
+                val interrupted = downloadDao.getTasksByStatus(DownloadStatus.DOWNLOADING.name)
+                for (task in interrupted) {
+                    if (!activeJobs.containsKey(task.id)) {
+                        downloadDao.updateTaskStatus(task.id, DownloadStatus.PAUSED.name, null)
+                    }
+                }
+            }
             settingsRepository.settingsFlow.collect {
                 pumpQueue()
             }

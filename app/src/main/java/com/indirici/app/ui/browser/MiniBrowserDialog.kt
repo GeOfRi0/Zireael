@@ -79,6 +79,7 @@ fun MiniBrowserDialog(
     var currentUserAgent by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var snifferClientRef by remember { mutableStateOf<VideoSnifferWebViewClient?>(null) }
     val detectedTasks = remember { mutableStateListOf<VideoDownloadTask>() }
 
     fun navigateToInput() {
@@ -247,6 +248,7 @@ fun MiniBrowserDialog(
                                     }
                                 )
                                 snifferClient.cachedUserAgent = settings.userAgentString
+                                snifferClientRef = snifferClient
                                 webViewClient = snifferClient
                                 webChromeClient = WebChromeClient()
 
@@ -299,6 +301,8 @@ fun MiniBrowserDialog(
                 cm.flush()
                 WebStorage.getInstance().deleteAllData()
             }
+            snifferClientRef?.shutdown()
+            snifferClientRef = null
             webViewRef?.stopLoading()
             webViewRef?.clearCache(true)
             webViewRef?.clearHistory()

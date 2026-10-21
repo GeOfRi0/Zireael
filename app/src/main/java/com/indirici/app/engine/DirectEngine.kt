@@ -171,7 +171,7 @@ class DirectEngine(
 
         DrmDetector.assertNotDrm(url = initialTask.url, mimeType = initialTask.mimeType)
 
-        val (fileName, mimeType, totalBytes, supportsRange, tempFile) = if (
+        val (effectiveUrl, fileName, mimeType, totalBytes, supportsRange, tempFile) = if (
             initialTask.tempFilePath.isNullOrBlank() || initialTask.totalBytes == 0L
         ) {
             val meta = analyze(initialTask.url, taskId)
@@ -187,6 +187,7 @@ class DirectEngine(
                 tempFilePath = partFile.absolutePath
             )
             TaskExecutionMeta(
+                effectiveUrl = meta.resolvedUrl.ifBlank { initialTask.url },
                 fileName = resolvedName,
                 mimeType = meta.mimeType,
                 totalBytes = meta.totalBytes,
@@ -195,6 +196,7 @@ class DirectEngine(
             )
         } else {
             TaskExecutionMeta(
+                effectiveUrl = initialTask.url,
                 fileName = initialTask.fileName,
                 mimeType = initialTask.mimeType,
                 totalBytes = initialTask.totalBytes,
@@ -251,7 +253,7 @@ class DirectEngine(
                 async(Dispatchers.IO) {
                     downloadSingleChunk(
                         taskId = taskId,
-                        url = initialTask.url,
+                        url = effectiveUrl,
                         tempFile = tempFile,
                         chunk = chunk,
                         supportsRange = supportsRange,
@@ -463,6 +465,7 @@ class DirectEngine(
     }
 
     private data class TaskExecutionMeta(
+        val effectiveUrl: String,
         val fileName: String,
         val mimeType: String?,
         val totalBytes: Long,

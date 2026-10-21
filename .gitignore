@@ -1,19 +1,7 @@
-# Gradle & Android build outputs
+build/
 .gradle/
-**/build/
-local.properties
-
-# Android Studio / IntelliJ
 .idea/
-*.iml
-.DS_Store
-captures/
-.externalNativeBuild/
-.cxx/
-
-# Keystores
-*.jks
+local.properties
 *.keystore
-
-# Agent workspace metadata
-.agents/
+*.jks
+.env

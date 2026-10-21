@@ -261,7 +261,8 @@ fun MiniBrowserDialog(
                                 )
                                 snifferClient.cachedUserAgent = settings.userAgentString
                                 snifferClientRef = snifferClient
-                                webViewClient = snifferClient
+                                // webViewClient + XHR/fetch manifest kancası (iframe'ler dahil) + Service Worker dinleyicisi
+                                snifferClient.attachTo(this)
                                 webChromeClient = WebChromeClient()
 
                                 // Tarayıcı içinde doğrudan dosya indirme tetiklenirse (Cloudflare sonrası zip/apk/mp4 vb.) yakala

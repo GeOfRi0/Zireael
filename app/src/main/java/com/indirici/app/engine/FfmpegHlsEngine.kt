@@ -23,6 +23,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.coroutineContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -110,6 +111,7 @@ class FfmpegHlsEngine(
         var lastReportTimeMs = System.currentTimeMillis()
         var lastReportedBytes = 0L
         val drmDetected = AtomicBoolean(false)
+        val skippedSegments = AtomicInteger(0)
 
         try {
             suspendCancellableCoroutine<Unit> { continuation ->
@@ -121,6 +123,13 @@ class FfmpegHlsEngine(
                         when {
                             drmDetected.get() -> {
                                 continuation.resumeWithException(DrmProtectedException())
+                            }
+                            ReturnCode.isSuccess(returnCode) && skippedSegments.get() > 0 -> {
+                                // FFmpeg parçayı atlayıp "başarılı" dönse de dosya eksik/bozuktur:
+                                // parça bazlı tekrar deneyen yt-dlp motoruna düşmek için hata say.
+                                continuation.resumeWithException(
+                                    IOException("FFmpeg ${skippedSegments.get()} HLS parçasını indiremedi (eksik dosya)")
+                                )
                             }
                             ReturnCode.isSuccess(returnCode) -> {
                                 continuation.resume(Unit)
@@ -146,11 +155,14 @@ class FfmpegHlsEngine(
                     { log ->
                         val message = log?.message
                         if (!message.isNullOrBlank()) {
+                            if (isSkippedSegmentLog(message)) {
+                                skippedSegments.incrementAndGet()
+                            }
                             try {
                                 DrmDetector.assertNotDrmInErrorMessage(message)
                             } catch (_: DrmProtectedException) {
                                 drmDetected.set(true)
-                                FFmpegKit.cancel()
+                                log?.sessionId?.let { FFmpegKit.cancel(it) } ?: FFmpegKit.cancel()
                             }
                         }
                     },
@@ -230,8 +242,16 @@ class FfmpegHlsEngine(
             addOption("--newline")
             addOption("--merge-output-format", "mp4")
             addOption("-o", outputFile.absolutePath)
+            // Parça hatalarında tekrar dene; yine de inmezse eksik/bozuk dosya üretmek yerine hata ver.
+            addOption("--retries", "10")
+            addOption("--fragment-retries", "10")
+            addOption("--abort-on-unavailable-fragments")
+            addOption("--concurrent-fragments", "4")
             if (userAgent.isNotBlank()) addOption("--user-agent", userAgent)
-            if (referer.isNotBlank()) addOption("--referer", referer)
+            if (referer.isNotBlank()) {
+                addOption("--referer", referer)
+                originOf(referer)?.let { addOption("--add-header", "Origin:$it") }
+            }
             if (cookie.isNotBlank()) addOption("--add-header", "Cookie:$cookie")
         }
 
@@ -303,32 +323,58 @@ class FfmpegHlsEngine(
                 }
                 if (referer.isNotBlank()) {
                     append("Referer: ").append(sanitizeHeaderLineValue(referer)).append("\r\n")
+                    // Tarayıcıdaki hls.js istekleri Origin gönderir; birçok CDN bunu olmadan 403 döner.
+                    originOf(referer)?.let { append("Origin: ").append(it).append("\r\n") }
                 }
                 if (cookie.isNotBlank()) {
                     append("Cookie: ").append(sanitizeHeaderLineValue(cookie)).append("\r\n")
                 }
             }
 
-            val args = ArrayList<String>(18)
+            val args = ArrayList<String>(40)
             if (headersBlock.isNotEmpty()) {
                 args.add("-headers")
                 args.add(headersBlock)
             }
             args.addAll(
                 listOf(
+                    // Not: -reconnect_at_eof HLS'te her parçanın sonunda yeniden bağlanmaya çalışıp
+                    // parçaları tekrarlatabiliyor / takılabiliyordu; bu yüzden kaldırıldı.
                     "-reconnect", "1",
-                    "-reconnect_at_eof", "1",
                     "-reconnect_streamed", "1",
+                    "-reconnect_on_network_error", "1",
                     "-reconnect_delay_max", "5",
+                    // Parça isteklerine de aktarılır: donan bağlantı sonsuza kadar beklemez (mikrosaniye).
+                    "-rw_timeout", "30000000",
+                    // HLS demuxer: başarısız parçayı atlamadan önce tekrar dene (atlanan parça = bozuk dosya).
+                    "-seg_max_retry", "5",
+                    // .jpg/.png/.html/.txt gibi kılık değiştirmiş parça uzantılarına izin ver.
+                    "-allowed_extensions", "ALL",
                     "-i", m3u8Url,
+                    // WebVTT altyazı / ID3 veri akışları MP4'e kopyalanamaz ve birleştirmeyi düşürür.
+                    "-sn",
+                    "-dn",
                     "-c", "copy",
-                    "-bsf:a", "aac_adtstoasc",
+                    // aac_adtstoasc MP4 muxer tarafından gerektiğinde otomatik eklenir; elle zorlamak
+                    // AAC dışı (MP3/AC3) sesli akışlarda işlemi tamamen başarısız yapıyordu.
+                    "-max_muxing_queue_size", "4096",
+                    "-avoid_negative_ts", "make_zero",
                     "-y", outputPath
                 )
             )
 
             return args.toTypedArray()
         }
+
+        /** FFmpeg HLS demuxer'ının, tüm denemeler bittikten sonra bir parçayı atladığını bildiren log satırı. */
+        internal fun isSkippedSegmentLog(message: String): Boolean =
+            message.contains("failed too many times, skipping", ignoreCase = true)
+
+        private val ORIGIN_REGEX = Regex("""^(https?://[^/?#\s@]+)""", RegexOption.IGNORE_CASE)
+
+        /** "https://host[:port]" kısmını döndürür (boşluk vb. içeren URL'lerde de çalışır). */
+        fun originOf(url: String): String? =
+            ORIGIN_REGEX.find(url.trim())?.groupValues?.get(1)?.lowercase()
 
         private fun sanitizeHeaderLineValue(raw: String): String {
             // Tırnak, noktalı virgül, eşittir vb. tüm çerez/UA karakterlerini olduğu gibi korur;

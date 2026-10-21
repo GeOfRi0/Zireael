@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import com.indirici.app.ui.theme.AppIcons
 import androidx.compose.material3.AlertDialog
@@ -102,18 +103,33 @@ fun AddDownloadDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     trailingIcon = {
-                        IconButton(
-                            onClick = {
-                                val clip = clipboardManager.getText()?.text
-                                if (!clip.isNullOrBlank()) {
-                                    url = clip.trim()
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (url.isNotEmpty()) {
+                                IconButton(
+                                    onClick = {
+                                        url = ""
+                                        customFileName = ""
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = androidx.compose.material.icons.filled.Close.let { Icons.Default.Close },
+                                        contentDescription = "Temizle"
+                                    )
                                 }
                             }
-                        ) {
-                            Icon(
-                                imageVector = AppIcons.ContentPaste,
-                                contentDescription = "Panodan Yapıştır"
-                            )
+                            IconButton(
+                                onClick = {
+                                    val clip = clipboardManager.getText()?.text
+                                    if (!clip.isNullOrBlank()) {
+                                        url = clip.trim()
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = AppIcons.ContentPaste,
+                                    contentDescription = "Panodan Yapıştır"
+                                )
+                            }
                         }
                     }
                 )

@@ -10,14 +10,20 @@ import com.indirici.app.domain.exception.DrmProtectedException
 import com.indirici.app.domain.model.EngineType
 import com.indirici.app.domain.model.UrlMetadata
 import com.indirici.app.domain.security.EphemeralSessionStore
+import com.yausername.ffmpeg.FFmpeg
+import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.coroutineContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -105,69 +111,87 @@ class FfmpegHlsEngine(
         var lastReportedBytes = 0L
         val drmDetected = AtomicBoolean(false)
 
-        suspendCancellableCoroutine<Unit> { continuation ->
-            val ffmpegSession = FFmpegKit.executeWithArgumentsAsync(
-                arguments,
-                { completedSession ->
-                    if (!continuation.isActive) return@executeWithArgumentsAsync
-                    val returnCode = completedSession.returnCode
-                    when {
-                        drmDetected.get() -> {
-                            continuation.resumeWithException(DrmProtectedException())
-                        }
-                        ReturnCode.isSuccess(returnCode) -> {
-                            continuation.resume(Unit)
-                        }
-                        ReturnCode.isCancel(returnCode) -> {
-                            continuation.resumeWithException(
-                                CancellationException("FFmpeg indirmesi kullanıcı tarafından durduruldu")
-                            )
-                        }
-                        else -> {
-                            val logs = completedSession.allLogsAsString
-                            try {
-                                DrmDetector.assertNotDrmInErrorMessage(logs)
+        try {
+            suspendCancellableCoroutine<Unit> { continuation ->
+                val ffmpegSession = FFmpegKit.executeWithArgumentsAsync(
+                    arguments,
+                    { completedSession ->
+                        if (!continuation.isActive) return@executeWithArgumentsAsync
+                        val returnCode = completedSession.returnCode
+                        when {
+                            drmDetected.get() -> {
+                                continuation.resumeWithException(DrmProtectedException())
+                            }
+                            ReturnCode.isSuccess(returnCode) -> {
+                                continuation.resume(Unit)
+                            }
+                            ReturnCode.isCancel(returnCode) -> {
                                 continuation.resumeWithException(
-                                    IOException("FFmpeg video indirme hatası (Kod: $returnCode)")
+                                    CancellationException("FFmpeg indirmesi kullanıcı tarafından durduruldu")
                                 )
-                            } catch (drm: DrmProtectedException) {
-                                continuation.resumeWithException(drm)
+                            }
+                            else -> {
+                                val logs = completedSession.allLogsAsString
+                                try {
+                                    DrmDetector.assertNotDrmInErrorMessage(logs)
+                                    continuation.resumeWithException(
+                                        IOException("FFmpeg video indirme hatası (Kod: $returnCode)")
+                                    )
+                                } catch (drm: DrmProtectedException) {
+                                    continuation.resumeWithException(drm)
+                                }
+                            }
+                        }
+                    },
+                    { log ->
+                        val message = log?.message
+                        if (!message.isNullOrBlank()) {
+                            try {
+                                DrmDetector.assertNotDrmInErrorMessage(message)
+                            } catch (_: DrmProtectedException) {
+                                drmDetected.set(true)
+                                FFmpegKit.cancel()
+                            }
+                        }
+                    },
+                    { statistics ->
+                        val currentBytes = statistics?.size ?: 0L
+                        val now = System.currentTimeMillis()
+                        val elapsedMs = now - lastReportTimeMs
+                        if (currentBytes > 0L && elapsedMs >= 300L) {
+                            val deltaBytes = (currentBytes - lastReportedBytes).coerceAtLeast(0L)
+                            val speed = (deltaBytes * 1000L) / elapsedMs
+                            lastReportTimeMs = now
+                            lastReportedBytes = currentBytes
+                            runCatching {
+                                runBlocking {
+                                    onProgress(currentBytes, task.totalBytes, speed)
+                                }
                             }
                         }
                     }
-                },
-                { log ->
-                    val message = log?.message
-                    if (!message.isNullOrBlank()) {
-                        try {
-                            DrmDetector.assertNotDrmInErrorMessage(message)
-                        } catch (_: DrmProtectedException) {
-                            drmDetected.set(true)
-                            FFmpegKit.cancel()
-                        }
-                    }
-                },
-                { statistics ->
-                    val currentBytes = statistics?.size ?: 0L
-                    val now = System.currentTimeMillis()
-                    val elapsedMs = now - lastReportTimeMs
-                    if (currentBytes > 0L && elapsedMs >= 300L) {
-                        val deltaBytes = (currentBytes - lastReportedBytes).coerceAtLeast(0L)
-                        val speed = (deltaBytes * 1000L) / elapsedMs
-                        lastReportTimeMs = now
-                        lastReportedBytes = currentBytes
-                        runCatching {
-                            runBlocking {
-                                onProgress(currentBytes, task.totalBytes, speed)
-                            }
-                        }
-                    }
-                }
-            )
+                )
 
-            continuation.invokeOnCancellation {
-                runCatching { FFmpegKit.cancel(ffmpegSession.sessionId) }
+                continuation.invokeOnCancellation {
+                    runCatching { FFmpegKit.cancel(ffmpegSession.sessionId) }
+                }
             }
+        } catch (t: Throwable) {
+            if (t is CancellationException || t is DrmProtectedException) throw t
+            coroutineContext.ensureActive()
+            // 32-bit (armeabi-v7a) cihazlarda veya FFmpegKit'in çözemediği özel HLS manifestlerinde
+            // tüm ABI'leri destekleyen gömülü yt-dlp + ffmpeg motoruna (youtubedl-android) geri düş.
+            if (outputFile.exists()) outputFile.delete()
+            executeYtDlpHlsFallback(
+                taskId = taskId,
+                m3u8Url = task.url,
+                outputFile = outputFile,
+                userAgent = userAgent,
+                referer = referer,
+                cookie = cookie,
+                totalBytesHint = task.totalBytes,
+                onProgress = onProgress
+            )
         }
 
         if (!outputFile.exists() || outputFile.length() == 0L) {
@@ -186,6 +210,75 @@ class FfmpegHlsEngine(
 
         runCatching { workDir.deleteRecursively() }
         return@withContext savedUri
+    }
+
+    private suspend fun executeYtDlpHlsFallback(
+        taskId: Long,
+        m3u8Url: String,
+        outputFile: File,
+        userAgent: String,
+        referer: String,
+        cookie: String,
+        totalBytesHint: Long,
+        onProgress: suspend (downloadedBytes: Long, totalBytes: Long, speedBytesPerSec: Long) -> Unit
+    ) {
+        YoutubeDL.getInstance().init(context)
+        runCatching { FFmpeg.getInstance().init(context) }
+
+        val request = YoutubeDLRequest(m3u8Url).apply {
+            addOption("--no-playlist")
+            addOption("--newline")
+            addOption("--merge-output-format", "mp4")
+            addOption("-o", outputFile.absolutePath)
+            if (userAgent.isNotBlank()) addOption("--user-agent", userAgent)
+            if (referer.isNotBlank()) addOption("--referer", referer)
+            if (cookie.isNotBlank()) addOption("--add-header", "Cookie:$cookie")
+        }
+
+        val processId = "indirici_hls_fallback_$taskId"
+        val cancelHandle = coroutineContext[Job]?.invokeOnCompletion { cause ->
+            if (cause != null) {
+                runCatching { YoutubeDL.getInstance().destroyProcessById(processId) }
+            }
+        }
+
+        var lastReportMs = 0L
+        var dynamicTotalBytes = totalBytesHint.takeIf { it > 0L } ?: -1L
+        try {
+            YoutubeDL.getInstance().execute(request, processId) { progressPercent, _, line ->
+                DrmDetector.assertNotDrmInErrorMessage(line)
+                val parsedTotal = MediaEngine.parseTotalBytesFromYtDlpLine(line)
+                if (parsedTotal > 0L) dynamicTotalBytes = parsedTotal
+                val now = System.currentTimeMillis()
+                if (now - lastReportMs >= 300L) {
+                    lastReportMs = now
+                    val safePercent = progressPercent.coerceIn(0f, 100f)
+                    val knownTotal = if (dynamicTotalBytes > 0L) dynamicTotalBytes else 0L
+                    val downloaded = if (knownTotal > 0L) {
+                        ((safePercent / 100f) * knownTotal.toFloat()).toLong()
+                    } else {
+                        outputFile.takeIf { it.exists() }?.length() ?: 0L
+                    }
+                    val speed = MediaEngine.parseSpeedFromYtDlpLine(line)
+                    runCatching {
+                        runBlocking {
+                            onProgress(downloaded, knownTotal, speed)
+                        }
+                    }
+                }
+            }
+        } catch (ce: CancellationException) {
+            runCatching { YoutubeDL.getInstance().destroyProcessById(processId) }
+            throw ce
+        } catch (drm: DrmProtectedException) {
+            throw drm
+        } catch (e: Exception) {
+            coroutineContext.ensureActive()
+            DrmDetector.assertNotDrmInErrorMessage(e.message)
+            throw IOException("HLS video indirme hatası: ${e.message ?: "Bilinmeyen hata"}", e)
+        } finally {
+            cancelHandle?.dispose()
+        }
     }
 
     companion object {

@@ -150,11 +150,21 @@ fun MiniBrowserDialog(
                                     keyboardActions = KeyboardActions(onGo = { navigateToInput() }),
                                     modifier = Modifier.fillMaxWidth(),
                                     trailingIcon = {
-                                        IconButton(onClick = { navigateToInput() }) {
-                                            Icon(
-                                                imageVector = Icons.Default.Search,
-                                                contentDescription = "Git"
-                                            )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            if (addressInput.isNotEmpty() && addressInput != "https://") {
+                                                IconButton(onClick = { addressInput = "" }) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = "Temizle"
+                                                    )
+                                                }
+                                            }
+                                            IconButton(onClick = { navigateToInput() }) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Search,
+                                                    contentDescription = "Git"
+                                                )
+                                            }
                                         }
                                     }
                                 )

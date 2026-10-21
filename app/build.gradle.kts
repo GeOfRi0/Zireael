@@ -13,8 +13,8 @@ android {
         applicationId = "com.zireael.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 200
-        versionName = "2.0.0"
+        versionCode = 201
+        versionName = "2.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -87,8 +87,8 @@ dependencies {
     // OkHttp (DirectEngine - Çoklu parça HTTP indirme ve başlık analizi)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-    // FFmpegKit (com.arthenica.ffmpegkit.FFmpegKit API'sini sağlayan güncel Maven Central paketi)
-    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-full:6.0.4")
+    // FFmpegKit (com.arthenica.ffmpegkit.FFmpegKit API'sini ve HTTPS/TLS .m3u8 desteğini sağlayan güncel Maven Central paketi)
+    implementation("dev.ffmpegkit-maintained:ffmpeg-kit-https:6.0.4")
 
     // V2: youtubedl-android (yt-dlp + ffmpeg) — Video ve ses siteleri indirme motoru
     val youtubedlAndroidVersion = "0.17.2"

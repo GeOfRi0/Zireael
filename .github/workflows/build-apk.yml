@@ -39,6 +39,23 @@ jobs:
           gradle assembleRelease --stacktrace
           cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/Zireael-v2.0.0.apk
 
+      - name: APK Imza ve Paket Doğrulaması (Pre-Release Gate)
+        run: |
+          python3 -c '
+          import zipfile, struct, sys
+          apk = "app/build/outputs/apk/release/Zireael-v2.0.0.apk"
+          with open(apk, "rb") as f:
+              data = f.read()
+          eocd = data.rfind(b"PK\x05\x06")
+          cd_off = struct.unpack_from("<I", data, eocd + 16)[0]
+          assert data[cd_off - 16 : cd_off] == b"APK Sig Block 42", "Missing APK Signature Scheme v2/v3!"
+          with zipfile.ZipFile(apk, "r") as z:
+              names = set(z.namelist())
+              for req in ["AndroidManifest.xml", "classes.dex", "lib/arm64-v8a/libffmpegkit.so", "lib/arm64-v8a/libpython.zip.so", "lib/armeabi-v7a/libpython.zip.so"]:
+                  assert req in names, f"Missing required entry: {req}"
+          print("Release verification passed! Size:", round(len(data)/1024/1024, 2), "MB")
+          '
+
       - name: APK Dosyasını Yükle (Artifact)
         uses: actions/upload-artifact@v4
         with:

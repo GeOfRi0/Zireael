@@ -102,9 +102,16 @@ class DownloadQueueCoordinator(
         if (primaryEngine.engineType == EngineType.DIRECT &&
             initialMeta.mimeType?.contains("text/html", ignoreCase = true) == true
         ) {
-            return runCatching {
+            return try {
                 engineRouter.mediaEngine.analyze(cleanUrl, sessionId)
-            }.getOrDefault(initialMeta)
+            } catch (drm: DrmProtectedException) {
+                throw drm
+            } catch (e: Exception) {
+                throw java.io.IOException(
+                    "Bu web sayfasında doğrudan indirilebilir medya bulunamadı. Lütfen 'Tarayıcı ile Yakala' veya 'Cloudflare Geç' seçeneğini deneyin.",
+                    e
+                )
+            }
         }
 
         return initialMeta

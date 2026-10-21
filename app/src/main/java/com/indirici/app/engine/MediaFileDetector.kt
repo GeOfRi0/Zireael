@@ -229,11 +229,12 @@ object MediaFileDetector {
      */
     fun extractMediaLinksFromContent(content: String, baseUrl: String? = null): List<String> {
         if (content.isBlank()) return emptyList()
+        val normalizedContent = content.replace("\\/", "/")
         val results = LinkedHashSet<String>()
 
         // 1. Tam http/https medya linklerini yakala
-        ABSOLUTE_MEDIA_URL_REGEX.findAll(content).forEach { match ->
-            val rawUrl = match.value.replace("\\/", "/").trim('"', '\'', ' ', '\\')
+        ABSOLUTE_MEDIA_URL_REGEX.findAll(normalizedContent).forEach { match ->
+            val rawUrl = match.value.trim('"', '\'', ' ', '\\')
             results.add(rawUrl)
         }
 
@@ -241,8 +242,8 @@ object MediaFileDetector {
         if (!baseUrl.isNullOrBlank()) {
             val baseUri = runCatching { URI(baseUrl) }.getOrNull()
             if (baseUri != null) {
-                RELATIVE_MEDIA_URL_REGEX.findAll(content).forEach { match ->
-                    val rel = match.groupValues[1].replace("\\/", "/").trim()
+                RELATIVE_MEDIA_URL_REGEX.findAll(normalizedContent).forEach { match ->
+                    val rel = match.groupValues[1].trim()
                     if (!rel.startsWith("http://") && !rel.startsWith("https://")) {
                         runCatching {
                             val resolved = baseUri.resolve(rel).toString()

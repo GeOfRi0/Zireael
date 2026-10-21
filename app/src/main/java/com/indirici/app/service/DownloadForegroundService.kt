@@ -31,6 +31,8 @@ class DownloadForegroundService : Service() {
     private var monitorJob: Job? = null
     private val notifiedCompletedIds = HashSet<Long>()
     private var hasSeededExistingCompleted = false
+    private var lastNotificationUpdateMs = 0L
+    private var lastActiveCount = -1
 
     override fun onCreate() {
         super.onCreate()
@@ -62,15 +64,22 @@ class DownloadForegroundService : Service() {
                     }
 
                     if (activeOrQueued.isEmpty()) {
+                        lastActiveCount = 0
                         delay(1200L)
                         if (!coordinator.hasActiveOrQueuedWork()) {
                             stopForeground(STOP_FOREGROUND_REMOVE)
                             stopSelf()
                         }
                     } else {
-                        val notification = buildSummaryNotification(activeOrQueued)
-                        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                        nm.notify(NOTIFICATION_ID, notification)
+                        val now = System.currentTimeMillis()
+                        val countChanged = activeOrQueued.size != lastActiveCount
+                        if (countChanged || now - lastNotificationUpdateMs >= 800L) {
+                            lastActiveCount = activeOrQueued.size
+                            lastNotificationUpdateMs = now
+                            val notification = buildSummaryNotification(activeOrQueued)
+                            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                            nm.notify(NOTIFICATION_ID, notification)
+                        }
                     }
                 }
             }

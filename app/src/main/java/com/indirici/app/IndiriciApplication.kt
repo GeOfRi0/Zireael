@@ -10,8 +10,27 @@ import com.indirici.app.engine.EngineRouter
 import com.indirici.app.engine.FfmpegHlsEngine
 import com.indirici.app.engine.MediaEngine
 import com.indirici.app.service.DownloadQueueCoordinator
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 class IndiriciApplication : Application() {
+
+    val sharedOkHttpClient: OkHttpClient by lazy {
+        val dispatcher = Dispatcher().apply {
+            maxRequests = 64
+            maxRequestsPerHost = 16
+        }
+        OkHttpClient.Builder()
+            .dispatcher(dispatcher)
+            .connectionPool(ConnectionPool(16, 5, TimeUnit.MINUTES))
+            .connectTimeout(25, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .build()
+    }
 
     val database: AppDatabase by lazy {
         AppDatabase.getInstance(this)
@@ -31,7 +50,8 @@ class IndiriciApplication : Application() {
             context = this,
             downloadDao = database.downloadDao(),
             fileSaver = fileSaver,
-            ephemeralSessionStore = ephemeralSessionStore
+            ephemeralSessionStore = ephemeralSessionStore,
+            okHttpClient = sharedOkHttpClient
         )
         val mediaEngine = MediaEngine(
             context = this,

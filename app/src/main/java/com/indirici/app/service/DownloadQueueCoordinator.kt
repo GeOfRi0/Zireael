@@ -7,6 +7,7 @@ import com.indirici.app.data.local.DownloadDao
 import com.indirici.app.data.local.DownloadTaskEntity
 import com.indirici.app.data.settings.SettingsRepository
 import com.indirici.app.domain.exception.DrmProtectedException
+import com.indirici.app.domain.exception.EngineRerouteRequiredException
 import com.indirici.app.domain.model.DownloadItem
 import com.indirici.app.domain.model.DownloadStatus
 import com.indirici.app.domain.model.EngineType
@@ -24,6 +25,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -45,6 +48,8 @@ class DownloadQueueCoordinator(
 
     val downloadsFlow: Flow<List<DownloadItem>> = downloadDao.observeAllTasks()
         .map { list -> list.map { it.toDomain() } }
+        .distinctUntilChanged()
+        .conflate()
 
     init {
         scope.launch {
@@ -358,13 +363,25 @@ class DownloadQueueCoordinator(
                     .getOrDefault(EngineType.DIRECT)
                 val engine = engineRouter.getEngineByType(engineType)
 
-                val savedUri = engine.executeDownload(taskId) { downloadedBytes, totalBytes, speedBytesPerSec ->
-                    downloadDao.updateTaskProgress(
-                        taskId = taskId,
-                        downloadedBytes = downloadedBytes,
-                        totalBytes = totalBytes,
-                        speedBytesPerSec = speedBytesPerSec
-                    )
+                val savedUri = try {
+                    engine.executeDownload(taskId) { downloadedBytes, totalBytes, speedBytesPerSec ->
+                        downloadDao.updateTaskProgress(
+                            taskId = taskId,
+                            downloadedBytes = downloadedBytes,
+                            totalBytes = totalBytes,
+                            speedBytesPerSec = speedBytesPerSec
+                        )
+                    }
+                } catch (reroute: EngineRerouteRequiredException) {
+                    val reroutedEngine = engineRouter.getEngineByType(reroute.targetEngineType)
+                    reroutedEngine.executeDownload(taskId) { downloadedBytes, totalBytes, speedBytesPerSec ->
+                        downloadDao.updateTaskProgress(
+                            taskId = taskId,
+                            downloadedBytes = downloadedBytes,
+                            totalBytes = totalBytes,
+                            speedBytesPerSec = speedBytesPerSec
+                        )
+                    }
                 }
 
                 downloadDao.markTaskCompleted(taskId = taskId, savedUri = savedUri)

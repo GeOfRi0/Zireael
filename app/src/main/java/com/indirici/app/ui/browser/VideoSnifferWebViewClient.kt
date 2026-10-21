@@ -29,7 +29,8 @@ import java.util.concurrent.TimeUnit
  */
 class VideoSnifferWebViewClient(
     private val onVideoDetected: (VideoDownloadTask) -> Unit,
-    private val onPageStateChanged: (url: String, title: String?, isLoading: Boolean) -> Unit = { _, _, _ -> }
+    private val onPageStateChanged: (url: String, title: String?, isLoading: Boolean) -> Unit = { _, _, _ -> },
+    sharedHttpClient: OkHttpClient? = null
 ) : WebViewClient() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -47,7 +48,7 @@ class VideoSnifferWebViewClient(
     var currentPageTitle: String? = null
         private set
 
-    private val headProbeClient = OkHttpClient.Builder()
+    private val headProbeClient: OkHttpClient = (sharedHttpClient?.newBuilder() ?: OkHttpClient.Builder())
         .connectTimeout(6, TimeUnit.SECONDS)
         .readTimeout(6, TimeUnit.SECONDS)
         .followRedirects(true)

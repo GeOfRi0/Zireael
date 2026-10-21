@@ -242,6 +242,7 @@ fun MiniBrowserDialog(
                                 cookieManager.setAcceptCookie(true)
                                 cookieManager.setAcceptThirdPartyCookies(this, true)
 
+                                val sharedClient = (ctx.applicationContext as? com.indirici.app.IndiriciApplication)?.sharedOkHttpClient
                                 val snifferClient = VideoSnifferWebViewClient(
                                     onVideoDetected = { task ->
                                         if (detectedTasks.none { it.url == task.url }) {
@@ -255,7 +256,8 @@ fun MiniBrowserDialog(
                                         }
                                         currentPageTitle = title
                                         isLoading = loading
-                                    }
+                                    },
+                                    sharedHttpClient = sharedClient
                                 )
                                 snifferClient.cachedUserAgent = settings.userAgentString
                                 snifferClientRef = snifferClient

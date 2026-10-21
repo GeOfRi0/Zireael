@@ -47,6 +47,24 @@ interface DownloadDao {
     @Query(
         """
         UPDATE download_tasks
+        SET url = :url,
+            fileName = :fileName,
+            mimeType = :mimeType,
+            engineType = :engineType
+        WHERE id = :taskId
+        """
+    )
+    suspend fun updateTaskEngineAndUrl(
+        taskId: Long,
+        url: String,
+        fileName: String,
+        mimeType: String?,
+        engineType: String
+    )
+
+    @Query(
+        """
+        UPDATE download_tasks
         SET downloadedBytes = :downloadedBytes,
             totalBytes = :totalBytes,
             speedBytesPerSec = :speedBytesPerSec

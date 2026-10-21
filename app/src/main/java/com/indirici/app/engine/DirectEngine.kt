@@ -6,6 +6,7 @@ import com.indirici.app.data.local.DownloadChunkEntity
 import com.indirici.app.data.local.DownloadDao
 import com.indirici.app.data.storage.DownloadsFileSaver
 import com.indirici.app.domain.engine.DownloadEngine
+import com.indirici.app.domain.exception.EngineRerouteRequiredException
 import com.indirici.app.domain.model.EngineType
 import com.indirici.app.domain.model.UrlMetadata
 import com.indirici.app.domain.security.EphemeralSessionStore
@@ -32,17 +33,16 @@ class DirectEngine(
     private val context: Context,
     private val downloadDao: DownloadDao,
     private val fileSaver: DownloadsFileSaver,
-    private val ephemeralSessionStore: EphemeralSessionStore
-) : DownloadEngine {
-
-    override val engineType: EngineType = EngineType.DIRECT
-
+    private val ephemeralSessionStore: EphemeralSessionStore,
     private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(25, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
+) : DownloadEngine {
+
+    override val engineType: EngineType = EngineType.DIRECT
 
     override suspend fun analyze(url: String, downloadId: Long?): UrlMetadata = withContext(Dispatchers.IO) {
         DrmDetector.assertNotDrm(url = url)
@@ -179,6 +179,25 @@ class DirectEngine(
             val resolvedName = initialTask.fileName
                 .takeIf { it.isNotBlank() && it != "indirilen_dosya" && it.contains('.') }
                 ?: meta.fileName
+
+            // Eğer yönlendirme (redirect) veya başlık analizi sonucunda kaynağın bir HLS (.m3u8) veya
+            // medya akışı olduğu ortaya çıkarsa, sahte/bozuk dosya indirmek yerine görevi gerçek motoruna devret
+            if (meta.engineType != EngineType.DIRECT) {
+                downloadDao.updateTaskEngineAndUrl(
+                    taskId = taskId,
+                    url = meta.resolvedUrl.ifBlank { initialTask.url },
+                    fileName = resolvedName,
+                    mimeType = meta.mimeType,
+                    engineType = meta.engineType.name
+                )
+                throw EngineRerouteRequiredException(meta.engineType)
+            }
+            if (meta.mimeType?.contains("text/html", ignoreCase = true) == true) {
+                throw IOException(
+                    "Bu bağlantı bir dosya değil, web sayfası döndürdü. Lütfen 'Tarayıcı ile Yakala' veya 'Cloudflare Geç' seçeneğini kullanın."
+                )
+            }
+
             val partDir = fileSaver.getScopedTempDownloadsDir("partial_direct")
             val partFile = File(partDir, "download_${taskId}.part")
             downloadDao.updateTaskMetadata(
@@ -252,37 +271,88 @@ class DirectEngine(
         onProgress(initialDownloaded, totalBytes, 0L)
 
         val totalChunkCount = chunks.size
-        coroutineScope {
-            chunks.filter { !it.isCompleted }.map { chunk ->
-                async(Dispatchers.IO) {
-                    downloadSingleChunk(
-                        taskId = taskId,
-                        url = effectiveUrl,
-                        tempFile = tempFile,
-                        chunk = chunk,
-                        totalChunkCount = totalChunkCount,
-                        supportsRange = supportsRange,
-                        totalBytes = totalBytes,
-                        globalDownloaded = globalDownloaded,
-                        onChunkBytesRead = {
-                            val now = System.currentTimeMillis()
-                            if (now - lastReportTimeMs >= 250L) {
-                                progressMutex.withLock {
-                                    val elapsedMs = now - lastReportTimeMs
-                                    if (elapsedMs >= 250L) {
-                                        val currentTotal = globalDownloaded.get()
-                                        val deltaBytes = (currentTotal - lastReportedBytes).coerceAtLeast(0L)
-                                        val speed = (deltaBytes * 1000L) / elapsedMs
-                                        lastReportTimeMs = now
-                                        lastReportedBytes = currentTotal
-                                        onProgress(currentTotal, totalBytes, speed)
+        val restartSingleChunkFallback = java.util.concurrent.atomic.AtomicBoolean(false)
+        try {
+            coroutineScope {
+                chunks.filter { !it.isCompleted }.map { chunk ->
+                    async(Dispatchers.IO) {
+                        downloadSingleChunk(
+                            taskId = taskId,
+                            url = effectiveUrl,
+                            tempFile = tempFile,
+                            chunk = chunk,
+                            totalChunkCount = totalChunkCount,
+                            supportsRange = supportsRange,
+                            totalBytes = totalBytes,
+                            globalDownloaded = globalDownloaded,
+                            onChunkBytesRead = {
+                                val now = System.currentTimeMillis()
+                                if (now - lastReportTimeMs >= 250L) {
+                                    progressMutex.withLock {
+                                        val elapsedMs = now - lastReportTimeMs
+                                        if (elapsedMs >= 250L) {
+                                            val currentTotal = globalDownloaded.get()
+                                            val deltaBytes = (currentTotal - lastReportedBytes).coerceAtLeast(0L)
+                                            val speed = (deltaBytes * 1000L) / elapsedMs
+                                            lastReportTimeMs = now
+                                            lastReportedBytes = currentTotal
+                                            onProgress(currentTotal, totalBytes, speed)
+                                        }
                                     }
                                 }
                             }
+                        )
+                    }
+                }.awaitAll()
+            }
+        } catch (fallbackEx: SingleStreamFallbackException) {
+            restartSingleChunkFallback.set(true)
+        }
+
+        if (restartSingleChunkFallback.get()) {
+            // Sunucu/CDN çoklu parça (HTTP 206) isteğini reddedip HTTP 200 döndürdüyse,
+            // otomatik olarak tek parçalı (single-stream) indirmeye düş ve görevi kurtar
+            if (tempFile.exists()) tempFile.delete()
+            downloadDao.deleteChunksForTask(taskId)
+            val singleChunk = DownloadChunkEntity(
+                taskId = taskId,
+                chunkIndex = 0,
+                startByte = 0L,
+                endByte = if (totalBytes > 0L) totalBytes - 1L else -1L,
+                downloadedBytes = 0L,
+                isCompleted = false
+            )
+            downloadDao.insertChunks(listOf(singleChunk))
+            val savedSingle = downloadDao.getChunksForTask(taskId).first()
+            globalDownloaded.set(0L)
+            lastReportedBytes = 0L
+            lastReportTimeMs = System.currentTimeMillis()
+            downloadSingleChunk(
+                taskId = taskId,
+                url = effectiveUrl,
+                tempFile = tempFile,
+                chunk = savedSingle,
+                totalChunkCount = 1,
+                supportsRange = false,
+                totalBytes = totalBytes,
+                globalDownloaded = globalDownloaded,
+                onChunkBytesRead = {
+                    val now = System.currentTimeMillis()
+                    if (now - lastReportTimeMs >= 250L) {
+                        progressMutex.withLock {
+                            val elapsedMs = now - lastReportTimeMs
+                            if (elapsedMs >= 250L) {
+                                val currentTotal = globalDownloaded.get()
+                                val deltaBytes = (currentTotal - lastReportedBytes).coerceAtLeast(0L)
+                                val speed = (deltaBytes * 1000L) / elapsedMs
+                                lastReportTimeMs = now
+                                lastReportedBytes = currentTotal
+                                onProgress(currentTotal, totalBytes, speed)
+                            }
                         }
-                    )
+                    }
                 }
-            }.awaitAll()
+            )
         }
 
         val finalBytes = if (totalBytes > 0L) totalBytes else globalDownloaded.get()
@@ -351,13 +421,13 @@ class DirectEngine(
                     chunkDownloaded = 0L
                     0L
                 } else {
-                    throw IOException("Sunucu çoklu parça (HTTP 206) isteğini reddetti")
+                    throw SingleStreamFallbackException()
                 }
 
                 RandomAccessFile(tempFile, "rw").use { raf ->
                     raf.seek(writeStartOffset)
                     body.byteStream().use { inputStream ->
-                        val buffer = ByteArray(32 * 1024)
+                        val buffer = ByteArray(64 * 1024)
                         var lastDbSyncMs = System.currentTimeMillis()
 
                         while (true) {
@@ -492,6 +562,8 @@ class DirectEngine(
         val base = decodedSegment.ifBlank { "indirilen_${System.currentTimeMillis()}" }
         return "$base.$ext"
     }
+
+    private class SingleStreamFallbackException : Exception("Sunucu çoklu parça yerine tek akış döndürdü")
 
     private data class TaskExecutionMeta(
         val effectiveUrl: String,

@@ -81,11 +81,11 @@ class VideoSnifferWebViewClient(
         view: WebView?,
         request: WebResourceRequest?
     ): WebResourceResponse? {
-        val req = request ?: return super.shouldInterceptRequest(view, request)
-        val uri = req.url ?: return super.shouldInterceptRequest(view, request)
+        val req = request ?: return null
+        val uri = req.url ?: return null
         val scheme = uri.scheme?.lowercase()
         if (scheme != "http" && scheme != "https") {
-            return super.shouldInterceptRequest(view, request)
+            return super.shouldInterceptRequest(view, req)
         }
 
         val requestUrl = uri.toString()
@@ -121,7 +121,7 @@ class VideoSnifferWebViewClient(
             )
         }
 
-        return super.shouldInterceptRequest(view, request)
+        return super.shouldInterceptRequest(view, req)
     }
 
     private fun emitTaskIfNew(
@@ -193,7 +193,7 @@ class VideoSnifferWebViewClient(
         }
     }
 
-    internal data class SniffEvaluation(
+    data class SniffEvaluation(
         val mimeType: String?,
         val label: String,
         val isDrmProtected: Boolean

@@ -82,7 +82,7 @@ class MediaEngine(
         val rawStreams = videoInfo.formats.orEmpty().map { fmt ->
             val size = when {
                 fmt.fileSize > 0L -> fmt.fileSize
-                fmt.fileSizeApprox > 0L -> fmt.fileSizeApprox
+                fmt.fileSizeApproximate > 0L -> fmt.fileSizeApproximate
                 else -> -1L
             }
             MediaFormatCatalog.RawStreamSummary(
@@ -107,7 +107,7 @@ class MediaEngine(
         val estimatedTotalBytes = when {
             defaultOption.estimatedSizeBytes > 0L -> defaultOption.estimatedSizeBytes
             videoInfo.fileSize > 0L -> videoInfo.fileSize
-            videoInfo.fileSizeApprox > 0L -> videoInfo.fileSizeApprox
+            videoInfo.fileSizeApproximate > 0L -> videoInfo.fileSizeApproximate
             else -> -1L
         }
 

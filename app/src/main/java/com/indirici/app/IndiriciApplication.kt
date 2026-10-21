@@ -37,7 +37,7 @@ class IndiriciApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        database = AppDatabase.build(this)
+        database = AppDatabase.getInstance(this)
         settingsRepository = SettingsRepository(this)
         ephemeralSessionStore = EphemeralSessionStore()
 

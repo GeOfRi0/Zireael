@@ -6,7 +6,7 @@ enum class DownloadStatus {
     PAUSED,
     COMPLETED,
     FAILED,
-    CANCELLED;
+    CANCELED;
 
     val isActiveOrQueued: Boolean
         get() = this == QUEUED || this == DOWNLOADING

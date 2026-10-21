@@ -30,6 +30,7 @@ class DownloadForegroundService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var monitorJob: Job? = null
     private val notifiedCompletedIds = HashSet<Long>()
+    private var hasSeededExistingCompleted = false
 
     override fun onCreate() {
         super.onCreate()
@@ -43,9 +44,16 @@ class DownloadForegroundService : Service() {
             val coordinator = (application as IndiriciApplication).queueCoordinator
             monitorJob = serviceScope.launch {
                 coordinator.downloadsFlow.collect { allItems ->
-                    allItems.filter { it.status == DownloadStatus.COMPLETED }.forEach { completed ->
-                        if (notifiedCompletedIds.add(completed.id)) {
-                            showCompletedNotification(completed.fileName)
+                    if (!hasSeededExistingCompleted) {
+                        hasSeededExistingCompleted = true
+                        allItems.filter { it.status == DownloadStatus.COMPLETED }.forEach {
+                            notifiedCompletedIds.add(it.id)
+                        }
+                    } else {
+                        allItems.filter { it.status == DownloadStatus.COMPLETED }.forEach { completed ->
+                            if (notifiedCompletedIds.add(completed.id)) {
+                                showCompletedNotification(completed.fileName)
+                            }
                         }
                     }
 

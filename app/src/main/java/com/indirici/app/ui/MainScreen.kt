@@ -1,5 +1,8 @@
 package com.indirici.app.ui
 
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,6 +49,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -292,6 +296,7 @@ private fun DownloadItemCard(
     onCancel: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val context = LocalContext.current
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
@@ -456,6 +461,33 @@ private fun DownloadItemCard(
                         }
 
                         DownloadStatus.COMPLETED -> {
+                            if (!item.savedUri.isNullOrBlank() && item.savedUri.startsWith("content://")) {
+                                FilledTonalIconButton(
+                                    onClick = {
+                                        runCatching {
+                                            val uri = Uri.parse(item.savedUri)
+                                            val openIntent = Intent(Intent.ACTION_VIEW).apply {
+                                                setDataAndType(uri, item.mimeType ?: "*/*")
+                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            }
+                                            context.startActivity(Intent.createChooser(openIntent, item.fileName))
+                                        }.onFailure {
+                                            Toast.makeText(
+                                                context,
+                                                "Dosya İndirilenler (Downloads) klasörüne kaydedildi.",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    },
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = AppIcons.FolderOpen,
+                                        contentDescription = "Dosyayı Aç",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
                             FilledTonalIconButton(
                                 onClick = onDelete,
                                 modifier = Modifier.size(34.dp)

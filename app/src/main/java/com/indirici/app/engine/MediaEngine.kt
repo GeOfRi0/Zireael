@@ -137,7 +137,7 @@ class MediaEngine(
         val targetExt = MediaFormatCatalog.getExtensionForFormatId(selectedFormatId)
         val targetMime = MediaFormatCatalog.getMimeTypeForFormatId(selectedFormatId)
 
-        val workDir = File(context.cacheDir, "partial_media/task_$taskId").apply { mkdirs() }
+        val workDir = fileSaver.getScopedTempDownloadsDir("partial_media/task_$taskId")
         val outputTemplate = File(workDir, "output.%(ext)s").absolutePath
 
         val finalFileName = MediaFormatCatalog.sanitizeTitleToFileName(

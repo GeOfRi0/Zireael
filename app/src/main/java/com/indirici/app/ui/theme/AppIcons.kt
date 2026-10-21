@@ -283,4 +283,35 @@ object AppIcons {
             }
         }.build()
     }
+
+    val FolderOpen: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "FolderOpen",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).apply {
+            path(fill = SolidColor(Color.Black)) {
+                moveTo(20f, 6f)
+                horizontalLineToRelative(-8f)
+                lineToRelative(-2f, -2f)
+                horizontalLineTo(4f)
+                curveToRelative(-1.1f, 0f, -1.99f, 0.9f, -1.99f, 2f)
+                lineTo(2f, 18f)
+                curveToRelative(0f, 1.1f, 0.9f, 2f, 2f, 2f)
+                horizontalLineToRelative(16f)
+                curveToRelative(1.1f, 0f, 2f, -0.9f, 2f, -2f)
+                verticalLineTo(8f)
+                curveToRelative(0f, -1.1f, -0.9f, -2f, -2f, -2f)
+                close()
+                moveTo(20f, 18f)
+                horizontalLineTo(4f)
+                verticalLineTo(8f)
+                horizontalLineToRelative(16f)
+                verticalLineToRelative(10f)
+                close()
+            }
+        }.build()
+    }
 }

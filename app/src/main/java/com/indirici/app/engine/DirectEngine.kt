@@ -176,8 +176,10 @@ class DirectEngine(
             initialTask.tempFilePath.isNullOrBlank() || initialTask.totalBytes == 0L
         ) {
             val meta = analyze(initialTask.url, taskId)
-            val resolvedName = initialTask.fileName.ifBlank { meta.fileName }
-            val partDir = File(context.cacheDir, "partial_downloads").apply { mkdirs() }
+            val resolvedName = initialTask.fileName
+                .takeIf { it.isNotBlank() && it != "indirilen_dosya" && it.contains('.') }
+                ?: meta.fileName
+            val partDir = fileSaver.getScopedTempDownloadsDir("partial_direct")
             val partFile = File(partDir, "download_${taskId}.part")
             downloadDao.updateTaskMetadata(
                 taskId = taskId,

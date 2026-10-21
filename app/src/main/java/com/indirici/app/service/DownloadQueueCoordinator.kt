@@ -213,7 +213,11 @@ class DownloadQueueCoordinator(
                 formatToUse
             )
             EngineType.FFMPEG_HLS -> "video_${System.currentTimeMillis()}.mp4"
-            EngineType.DIRECT -> cleanUrl.substringBefore('?').substringAfterLast('/').ifBlank { "indirilen_dosya" }
+            EngineType.DIRECT -> {
+                val seg = cleanUrl.substringBefore('#').substringBefore('?').substringAfterLast('/')
+                val decoded = runCatching { java.net.URLDecoder.decode(seg, "UTF-8") }.getOrDefault(seg).trim()
+                if (decoded.isNotBlank() && decoded.contains('.')) decoded else ""
+            }
         }
 
         val entity = DownloadTaskEntity(

@@ -45,8 +45,6 @@ class DirectEngine(
     override val engineType: EngineType = EngineType.DIRECT
 
     override suspend fun analyze(url: String, downloadId: Long?): UrlMetadata = withContext(Dispatchers.IO) {
-        DrmDetector.assertNotDrm(url = url)
-
         val rangeProbeRequest = buildRequest(url, downloadId) {
             get()
             header("Range", "bytes=0-4095")
@@ -59,17 +57,11 @@ class DirectEngine(
                 ?: MediaFileDetector.resolveExtensionFromMime(rawMime)
             val mimeType = rawMime ?: MediaFileDetector.resolveMimeFromExtension(detectedExt)
 
-            DrmDetector.assertNotDrm(
-                url = resolvedUrl,
-                mimeType = mimeType,
-                headers = response.headers.toMultimap()
-            )
-
             if (!response.isSuccessful && response.code != 416) {
                 throw IOException("Sunucu hatası: HTTP ${response.code}")
             }
 
-            // Eğer yanıt bir HLS (.m3u8) manifestiyse içeriğin ilk kısmını okuyup DRM ve H.265/AAC/fMP4 kontrolü yap
+            // Eğer yanıt bir HLS (.m3u8) manifestiyse içeriğin ilk kısmını incele
             if (MediaFileDetector.isHlsManifestUrl(resolvedUrl, mimeType)) {
                 val sampleText = readBodyPreview(response)
                 val hlsInspection = MediaFileDetector.inspectHlsManifest(resolvedUrl, sampleText)
@@ -169,8 +161,6 @@ class DirectEngine(
     ): String = withContext(Dispatchers.IO) {
         val initialTask = downloadDao.getTaskById(taskId)
             ?: throw IOException("İndirme görevi bulunamadı (id=$taskId)")
-
-        DrmDetector.assertNotDrm(url = initialTask.url, mimeType = initialTask.mimeType)
 
         val (effectiveUrl, fileName, mimeType, totalBytes, supportsRange, tempFile) = if (
             initialTask.tempFilePath.isNullOrBlank() || initialTask.totalBytes == 0L
@@ -402,12 +392,6 @@ class DirectEngine(
 
         try {
             call.execute().use { response ->
-                DrmDetector.assertNotDrm(
-                    url = response.request.url.toString(),
-                    mimeType = response.header("Content-Type"),
-                    headers = response.headers.toMultimap()
-                )
-
                 if (!response.isSuccessful) {
                     throw IOException("Parça ${chunk.chunkIndex + 1} indirilemedi: HTTP ${response.code}")
                 }

@@ -1,6 +1,5 @@
 package com.indirici.app.engine
 
-import com.indirici.app.domain.exception.DrmProtectedException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -91,20 +90,6 @@ class MediaFileDetectorTest {
         )
         assertTrue(aacInfo.isAacAudioStream)
         assertTrue(aacInfo.usesMpegTsSegments)
-    }
-
-    @Test
-    fun `inspectHlsManifest rejects SAMPLE-AES DRM protected HLS`() {
-        val drmHls = """
-            #EXTM3U
-            #EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://license.example.com"
-            seg1.ts
-        """.trimIndent()
-
-        val ex = assertThrows(DrmProtectedException::class.java) {
-            MediaFileDetector.inspectHlsManifest("https://cdn.example.com/drm.m3u8", drmHls)
-        }
-        assertEquals("Bu içerik DRM korumalı, desteklenmiyor", ex.message)
     }
 
     @Test

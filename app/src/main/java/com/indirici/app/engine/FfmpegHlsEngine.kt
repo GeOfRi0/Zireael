@@ -6,7 +6,6 @@ import com.arthenica.ffmpegkit.ReturnCode
 import com.indirici.app.data.local.DownloadDao
 import com.indirici.app.data.storage.DownloadsFileSaver
 import com.indirici.app.domain.engine.DownloadEngine
-import com.indirici.app.domain.exception.DrmProtectedException
 import com.indirici.app.domain.model.EngineType
 import com.indirici.app.domain.model.UrlMetadata
 import com.indirici.app.domain.security.EphemeralSessionStore
@@ -43,7 +42,6 @@ class FfmpegHlsEngine(
     override val engineType: EngineType = EngineType.FFMPEG_HLS
 
     override suspend fun analyze(url: String, downloadId: Long?): UrlMetadata = withContext(Dispatchers.IO) {
-        DrmDetector.assertNotDrm(url = url)
         val defaultName = MediaFormatCatalog.sanitizeTitleToFileName(
             rawTitle = "video_${System.currentTimeMillis()}",
             formatId = MediaFormatCatalog.FORMAT_VIDEO_1080P
@@ -66,8 +64,6 @@ class FfmpegHlsEngine(
     ): String = withContext(Dispatchers.IO) {
         val task = downloadDao.getTaskById(taskId)
             ?: throw IOException("İndirme görevi bulunamadı (id=$taskId)")
-
-        DrmDetector.assertNotDrm(url = task.url, mimeType = task.mimeType)
 
         val workDir = fileSaver.getScopedTempDownloadsDir("partial_ffmpeg/task_$taskId")
         val cleanFileName = if (task.fileName.endsWith(".mp4", ignoreCase = true) ||
@@ -110,7 +106,6 @@ class FfmpegHlsEngine(
 
         var lastReportTimeMs = System.currentTimeMillis()
         var lastReportedBytes = 0L
-        val drmDetected = AtomicBoolean(false)
         val skippedSegments = AtomicInteger(0)
 
         try {
@@ -121,9 +116,6 @@ class FfmpegHlsEngine(
                         if (!continuation.isActive) return@executeWithArgumentsAsync
                         val returnCode = completedSession.returnCode
                         when {
-                            drmDetected.get() -> {
-                                continuation.resumeWithException(DrmProtectedException())
-                            }
                             ReturnCode.isSuccess(returnCode) && skippedSegments.get() > 0 -> {
                                 // FFmpeg parçayı atlayıp "başarılı" dönse de dosya eksik/bozuktur:
                                 // parça bazlı tekrar deneyen yt-dlp motoruna düşmek için hata say.
@@ -141,14 +133,9 @@ class FfmpegHlsEngine(
                             }
                             else -> {
                                 val logs = completedSession.allLogsAsString
-                                try {
-                                    DrmDetector.assertNotDrmInErrorMessage(logs)
-                                    continuation.resumeWithException(
-                                        IOException("FFmpeg video indirme hatası (Kod: $returnCode)")
-                                    )
-                                } catch (drm: DrmProtectedException) {
-                                    continuation.resumeWithException(drm)
-                                }
+                                continuation.resumeWithException(
+                                    IOException("FFmpeg video indirme hatası (Kod: $returnCode): $logs")
+                                )
                             }
                         }
                     },
@@ -157,12 +144,6 @@ class FfmpegHlsEngine(
                         if (!message.isNullOrBlank()) {
                             if (isSkippedSegmentLog(message)) {
                                 skippedSegments.incrementAndGet()
-                            }
-                            try {
-                                DrmDetector.assertNotDrmInErrorMessage(message)
-                            } catch (_: DrmProtectedException) {
-                                drmDetected.set(true)
-                                log?.sessionId?.let { FFmpegKit.cancel(it) } ?: FFmpegKit.cancel()
                             }
                         }
                     },
@@ -189,7 +170,7 @@ class FfmpegHlsEngine(
                 }
             }
         } catch (t: Throwable) {
-            if (t is CancellationException || t is DrmProtectedException) throw t
+            if (t is CancellationException) throw t
             coroutineContext.ensureActive()
             // 32-bit (armeabi-v7a) cihazlarda veya FFmpegKit'in çözemediği özel HLS manifestlerinde
             // tüm ABI'leri destekleyen gömülü yt-dlp + ffmpeg motoruna (youtubedl-android) geri düş.
@@ -266,7 +247,6 @@ class FfmpegHlsEngine(
         var dynamicTotalBytes = totalBytesHint.takeIf { it > 0L } ?: -1L
         try {
             YoutubeDL.getInstance().execute(request, processId) { progressPercent, _, line ->
-                DrmDetector.assertNotDrmInErrorMessage(line)
                 val parsedTotal = MediaEngine.parseTotalBytesFromYtDlpLine(line)
                 if (parsedTotal > 0L) dynamicTotalBytes = parsedTotal
                 val now = System.currentTimeMillis()
@@ -290,11 +270,8 @@ class FfmpegHlsEngine(
         } catch (ce: CancellationException) {
             runCatching { YoutubeDL.getInstance().destroyProcessById(processId) }
             throw ce
-        } catch (drm: DrmProtectedException) {
-            throw drm
         } catch (e: Exception) {
             coroutineContext.ensureActive()
-            DrmDetector.assertNotDrmInErrorMessage(e.message)
             throw IOException("HLS video indirme hatası: ${e.message ?: "Bilinmeyen hata"}", e)
         } finally {
             cancelHandle?.dispose()

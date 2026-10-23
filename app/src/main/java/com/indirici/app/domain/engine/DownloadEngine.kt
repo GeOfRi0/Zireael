@@ -10,7 +10,7 @@ interface DownloadEngine {
     val engineType: EngineType
 
     /**
-     * Verilen URL'yi kontrol eder, DRM varsa [com.indirici.app.domain.exception.DrmProtectedException] fırlatır.
+     * Verilen URL'yi kontrol eder.
      * Dosya adı, boyut ve çoklu parça (Range) desteğini döndürür.
      */
     suspend fun analyze(url: String, downloadId: Long? = null): UrlMetadata

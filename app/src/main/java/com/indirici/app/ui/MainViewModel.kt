@@ -4,13 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.indirici.app.data.settings.SettingsRepository
-import com.indirici.app.domain.exception.DrmProtectedException
+import com.indirici.app.domain.exception.MediaEngineException
 import com.indirici.app.domain.model.AppSettings
 import com.indirici.app.domain.model.DownloadItem
 import com.indirici.app.domain.model.EngineType
 import com.indirici.app.domain.model.UrlMetadata
 import com.indirici.app.domain.model.VideoDownloadTask
 import com.indirici.app.engine.EngineRouter
+import com.indirici.app.engine.MediaEngine
 import com.indirici.app.engine.MediaFormatCatalog
 import com.indirici.app.service.DownloadQueueCoordinator
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,7 +27,8 @@ data class AddDownloadUiState(
     val metadata: UrlMetadata? = null,
     val selectedFormatId: String = MediaFormatCatalog.DEFAULT_FORMAT_ID,
     val hasCloudflareSession: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val errorDetail: String? = null
 )
 
 class MainViewModel(
@@ -72,7 +74,8 @@ class MainViewModel(
         _addDialogState.update {
             it.copy(
                 hasCloudflareSession = true,
-                errorMessage = null
+                errorMessage = null,
+                errorDetail = null
             )
         }
         analyzeUrl(targetUrl)
@@ -81,16 +84,33 @@ class MainViewModel(
     fun analyzeUrl(url: String) {
         val trimmed = url.trim()
         if (trimmed.isEmpty()) {
-            _addDialogState.update { it.copy(errorMessage = "Lütfen geçerli bir link girin.") }
+            _addDialogState.update {
+                it.copy(
+                    errorMessage = "Lütfen geçerli bir link girin.",
+                    errorDetail = null
+                )
+            }
             return
         }
         if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
-            _addDialogState.update { it.copy(errorMessage = "Link http:// veya https:// ile başlamalıdır.") }
+            _addDialogState.update {
+                it.copy(
+                    errorMessage = "Link http:// veya https:// ile başlamalıdır.",
+                    errorDetail = null
+                )
+            }
             return
         }
 
         viewModelScope.launch {
-            _addDialogState.update { it.copy(isAnalyzing = true, errorMessage = null, metadata = null) }
+            _addDialogState.update {
+                it.copy(
+                    isAnalyzing = true,
+                    errorMessage = null,
+                    errorDetail = null,
+                    metadata = null
+                )
+            }
             try {
                 val meta = queueCoordinator.analyzeUrl(trimmed)
                 val initialFormat = meta.availableFormats.firstOrNull {
@@ -102,23 +122,31 @@ class MainViewModel(
                         isAnalyzing = false,
                         metadata = meta,
                         selectedFormatId = initialFormat,
-                        errorMessage = null
-                    )
-                }
-            } catch (drm: DrmProtectedException) {
-                _addDialogState.update {
-                    it.copy(
-                        isAnalyzing = false,
-                        metadata = null,
-                        errorMessage = DrmProtectedException.DRM_UNSUPPORTED_MESSAGE
+                        errorMessage = null,
+                        errorDetail = null
                     )
                 }
             } catch (e: Exception) {
+                val mediaEx = (e as? MediaEngineException)
+                    ?: (e.cause as? MediaEngineException)
+                val rawError = mediaEx?.rawError
+                    ?: e.message?.trim()?.takeIf { it.isNotBlank() }
+                    ?: "Bilinmeyen hata"
+                val version = mediaEx?.ytDlpVersion
+                    ?: (engineRouter.mediaEngine as? MediaEngine)?.getYtDlpVersion()
+                    ?: "Bilinmiyor"
+                val detail = buildString {
+                    append("yt-dlp sürümü: ").appendLine(version)
+                    appendLine()
+                    append(rawError)
+                }.trim()
+
                 _addDialogState.update {
                     it.copy(
                         isAnalyzing = false,
                         metadata = null,
-                        errorMessage = e.message ?: "Link analiz edilemedi."
+                        errorMessage = "Bu link indirilemedi.",
+                        errorDetail = detail
                     )
                 }
             }
@@ -133,11 +161,21 @@ class MainViewModel(
     ) {
         val trimmed = url.trim()
         if (trimmed.isEmpty()) {
-            _addDialogState.update { it.copy(errorMessage = "Lütfen bir indirme linki yapıştırın.") }
+            _addDialogState.update {
+                it.copy(
+                    errorMessage = "Lütfen bir indirme linki yapıştırın.",
+                    errorDetail = null
+                )
+            }
             return
         }
         if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
-            _addDialogState.update { it.copy(errorMessage = "Link http:// veya https:// ile başlamalıdır.") }
+            _addDialogState.update {
+                it.copy(
+                    errorMessage = "Link http:// veya https:// ile başlamalıdır.",
+                    errorDetail = null
+                )
+            }
             return
         }
 
@@ -177,13 +215,26 @@ class MainViewModel(
                 )
                 resetAddDialogState()
                 onSuccess()
-            } catch (drm: DrmProtectedException) {
-                _addDialogState.update {
-                    it.copy(errorMessage = DrmProtectedException.DRM_UNSUPPORTED_MESSAGE)
-                }
             } catch (e: Exception) {
+                val mediaEx = (e as? MediaEngineException)
+                    ?: (e.cause as? MediaEngineException)
+                val rawError = mediaEx?.rawError
+                    ?: e.message?.trim()?.takeIf { it.isNotBlank() }
+                    ?: "Bilinmeyen hata"
+                val version = mediaEx?.ytDlpVersion
+                    ?: (engineRouter.mediaEngine as? MediaEngine)?.getYtDlpVersion()
+                    ?: "Bilinmiyor"
+                val detail = buildString {
+                    append("yt-dlp sürümü: ").appendLine(version)
+                    appendLine()
+                    append(rawError)
+                }.trim()
+
                 _addDialogState.update {
-                    it.copy(errorMessage = e.message ?: "İndirme başlatılamadı.")
+                    it.copy(
+                        errorMessage = "Bu link indirilemedi.",
+                        errorDetail = detail
+                    )
                 }
             }
         }

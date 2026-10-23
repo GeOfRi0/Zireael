@@ -6,15 +6,14 @@ import androidx.core.content.ContextCompat
 import com.indirici.app.data.local.DownloadDao
 import com.indirici.app.data.local.DownloadTaskEntity
 import com.indirici.app.data.settings.SettingsRepository
-import com.indirici.app.domain.exception.DrmProtectedException
 import com.indirici.app.domain.exception.EngineRerouteRequiredException
+import com.indirici.app.domain.exception.MediaEngineException
 import com.indirici.app.domain.model.DownloadItem
 import com.indirici.app.domain.model.DownloadStatus
 import com.indirici.app.domain.model.EngineType
 import com.indirici.app.domain.model.UrlMetadata
 import com.indirici.app.domain.model.VideoDownloadTask
 import com.indirici.app.domain.security.EphemeralSessionStore
-import com.indirici.app.engine.DrmDetector
 import com.indirici.app.engine.EngineRouter
 import com.indirici.app.engine.MediaFileDetector
 import com.indirici.app.engine.MediaFormatCatalog
@@ -109,8 +108,8 @@ class DownloadQueueCoordinator(
         ) {
             return try {
                 engineRouter.mediaEngine.analyze(cleanUrl, sessionId)
-            } catch (drm: DrmProtectedException) {
-                throw drm
+            } catch (e: MediaEngineException) {
+                throw e
             } catch (e: Exception) {
                 throw java.io.IOException(
                     "Bu web sayfasında doğrudan indirilebilir medya bulunamadı. Lütfen 'Tarayıcı ile Yakala' veya 'Cloudflare Geç' seçeneğini deneyin.",
@@ -131,11 +130,6 @@ class DownloadQueueCoordinator(
      *   RAM'de (EphemeralSessionStore) tutar.
      */
     suspend fun enqueueSniffedVideoTask(task: VideoDownloadTask): Long {
-        if (task.isDrmProtected) {
-            throw DrmProtectedException()
-        }
-        DrmDetector.assertNotDrm(url = task.url, mimeType = task.mimeType)
-
         val isHls = MediaFileDetector.isHlsManifestUrl(task.url, task.mimeType)
         val detectedEngine = engineRouter.detectEngineForUrl(task.url)
         val engineType = when {
@@ -389,14 +383,6 @@ class DownloadQueueCoordinator(
                 ephemeralSessionStore.clearSession(taskId)
             } catch (ce: CancellationException) {
                 throw ce
-            } catch (drm: DrmProtectedException) {
-                coroutineContext.ensureActive()
-                ephemeralSessionStore.clearSession(taskId)
-                downloadDao.updateTaskStatus(
-                    taskId = taskId,
-                    status = DownloadStatus.FAILED.name,
-                    errorMessage = DrmProtectedException.DRM_UNSUPPORTED_MESSAGE
-                )
             } catch (e: Exception) {
                 coroutineContext.ensureActive()
                 val latest = downloadDao.getTaskById(taskId)

@@ -3,14 +3,15 @@ package com.indirici.app.domain.exception
 import com.indirici.app.domain.model.EngineType
 
 /**
- * DRM korumalı içerik tespit edildiğinde fırlatılır.
- * Kural gereği DRM aşılmaya çalışılmaz ve kullanıcıya sabit uyarı mesajı gösterilir.
+ * yt-dlp / MediaEngine link çözümleme veya indirme başarısız olduğunda fırlatılır.
+ * Ham motor hatasını ve kurulu yt-dlp sürüm bilgisini taşır.
  */
-class DrmProtectedException : Exception(DRM_UNSUPPORTED_MESSAGE) {
-    companion object {
-        const val DRM_UNSUPPORTED_MESSAGE = "Bu içerik DRM korumalı, desteklenmiyor"
-    }
-}
+class MediaEngineException(
+    message: String = "Bu link indirilemedi.",
+    val rawError: String,
+    val ytDlpVersion: String,
+    cause: Throwable? = null
+) : Exception(message, cause)
 
 /**
  * Doğrudan indirme motoru (DirectEngine) HTTP başlıklarını veya yönlendirmeyi (redirect)

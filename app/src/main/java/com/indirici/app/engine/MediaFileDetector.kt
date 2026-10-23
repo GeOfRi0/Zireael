@@ -178,11 +178,8 @@ object MediaFileDetector {
     /**
      * Bir HLS (.m3u8) manifest içeriğini inceleyerek H.265 (HEVC), AAC HLS,
      * fMP4 (.m4s / init.mp4) veya MPEG-TS (.ts) yapısını tespit eder.
-     * DRM varsa DrmDetector üzerinden DrmProtectedException fırlatır.
      */
     fun inspectHlsManifest(url: String, manifestContent: String): HlsStreamInspection {
-        DrmDetector.assertNotDrm(url = url, manifestSample = manifestContent)
-
         val lower = manifestContent.lowercase()
         val isHls = lower.contains("#extm3u")
 

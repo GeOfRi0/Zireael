@@ -17,9 +17,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.ReturnCode
-import com.indirici.app.domain.exception.DrmProtectedException
 import com.indirici.app.domain.model.VideoDownloadTask
-import com.indirici.app.engine.DrmDetector
 import com.indirici.app.engine.FfmpegHlsEngine
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -46,16 +44,6 @@ class VideoDownloadService : Service() {
         val task = ephemeralTasks.remove(sessionIdKey)
 
         if (task == null) {
-            stopSelf(startId)
-            return START_NOT_STICKY
-        }
-
-        // DRM Kuralı: DRM'li içerik tespit edilirse aşmaya çalışma, uyarı göster ve servisi durdur
-        if (task.isDrmProtected) {
-            showResultNotification(
-                title = "İndirme Desteklenmiyor",
-                message = DrmProtectedException.DRM_UNSUPPORTED_MESSAGE
-            )
             stopSelf(startId)
             return START_NOT_STICKY
         }
@@ -116,12 +104,7 @@ class VideoDownloadService : Service() {
                     val errorLogs = session.allLogsAsString
                     if (tempOutputFile.exists()) tempOutputFile.delete()
 
-                    val userMessage = try {
-                        DrmDetector.assertNotDrmInErrorMessage(errorLogs)
-                        "Video indirilemedi (Kod: $returnCode)"
-                    } catch (drm: DrmProtectedException) {
-                        DrmProtectedException.DRM_UNSUPPORTED_MESSAGE
-                    }
+                    val userMessage = "Video indirilemedi (Kod: $returnCode)"
 
                     showResultNotification(
                         title = "İndirme Başarısız",

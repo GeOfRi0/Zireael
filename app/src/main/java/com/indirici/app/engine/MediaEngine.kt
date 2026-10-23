@@ -4,7 +4,7 @@ import android.content.Context
 import com.indirici.app.data.local.DownloadDao
 import com.indirici.app.data.storage.DownloadsFileSaver
 import com.indirici.app.domain.engine.DownloadEngine
-import com.indirici.app.domain.exception.DrmProtectedException
+import com.indirici.app.domain.exception.MediaEngineException
 import com.indirici.app.domain.model.EngineType
 import com.indirici.app.domain.model.UrlMetadata
 import com.indirici.app.domain.security.EphemeralSessionStore
@@ -41,6 +41,9 @@ class MediaEngine(
     @Volatile
     private var isInitialized = false
 
+    @Volatile
+    private var cachedYtDlpVersion: String? = null
+
     suspend fun ensureInitialized() {
         if (isInitialized) return
         initMutex.withLock {
@@ -53,8 +56,29 @@ class MediaEngine(
         }
     }
 
+    suspend fun getYtDlpVersion(): String {
+        cachedYtDlpVersion?.let { return it }
+        return withContext(Dispatchers.IO) {
+            val fromPrefs = runCatching {
+                YoutubeDL.getInstance().version(context)?.trim()?.takeIf { it.isNotBlank() }
+            }.getOrNull()
+            if (fromPrefs != null) {
+                cachedYtDlpVersion = fromPrefs
+                return@withContext fromPrefs
+            }
+
+            val fromCmd = runCatching {
+                ensureInitialized()
+                val req = YoutubeDLRequest(emptyList<String>()).addOption("--version")
+                YoutubeDL.getInstance().execute(req, null, null).out.trim().takeIf { it.isNotBlank() }
+            }.getOrNull()
+            val version = fromCmd ?: "Bilinmiyor"
+            cachedYtDlpVersion = version
+            version
+        }
+    }
+
     override suspend fun analyze(url: String, downloadId: Long?): UrlMetadata = withContext(Dispatchers.IO) {
-        DrmDetector.assertNotDrm(url = url)
         ensureInitialized()
 
         val request = YoutubeDLRequest(url).apply {
@@ -66,17 +90,14 @@ class MediaEngine(
         val videoInfo = try {
             YoutubeDL.getInstance().getInfo(request)
         } catch (e: Exception) {
-            DrmDetector.assertNotDrmInErrorMessage(e.message)
-            throw IOException("Medya linki çözümlenemedi: ${e.message ?: "Bilinmeyen hata"}", e)
-        }
-
-        if (!videoInfo.manifestUrl.isNullOrBlank()) {
-            DrmDetector.assertNotDrm(url = videoInfo.manifestUrl!!)
-        }
-        videoInfo.formats?.forEach { fmt ->
-            if (!fmt.manifestUrl.isNullOrBlank()) {
-                DrmDetector.assertNotDrm(url = fmt.manifestUrl!!)
-            }
+            val rawError = e.message?.trim().takeIf { !it.isNullOrBlank() } ?: "Bilinmeyen hata"
+            val version = getYtDlpVersion()
+            throw MediaEngineException(
+                message = "Bu link indirilemedi.",
+                rawError = rawError,
+                ytDlpVersion = version,
+                cause = e
+            )
         }
 
         val rawStreams = videoInfo.formats.orEmpty().map { fmt ->
@@ -130,7 +151,6 @@ class MediaEngine(
         val task = downloadDao.getTaskById(taskId)
             ?: throw IOException("İndirme görevi bulunamadı (id=$taskId)")
 
-        DrmDetector.assertNotDrm(url = task.url, mimeType = task.mimeType)
         ensureInitialized()
 
         val selectedFormatId = task.selectedFormatId ?: MediaFormatCatalog.DEFAULT_FORMAT_ID
@@ -177,7 +197,6 @@ class MediaEngine(
 
         try {
             YoutubeDL.getInstance().execute(request, processId) { progressPercent, _, line ->
-                DrmDetector.assertNotDrmInErrorMessage(line)
                 val parsedTotal = parseTotalBytesFromYtDlpLine(line)
                 if (parsedTotal > 0L) {
                     dynamicTotalBytes = parsedTotal
@@ -204,11 +223,8 @@ class MediaEngine(
         } catch (ce: CancellationException) {
             runCatching { YoutubeDL.getInstance().destroyProcessById(processId) }
             throw ce
-        } catch (drm: DrmProtectedException) {
-            throw drm
         } catch (e: Exception) {
             coroutineContext.ensureActive()
-            DrmDetector.assertNotDrmInErrorMessage(e.message)
             throw IOException("Medya indirme hatası: ${e.message ?: "Bilinmeyen hata"}", e)
         } finally {
             cancellationHandle?.dispose()

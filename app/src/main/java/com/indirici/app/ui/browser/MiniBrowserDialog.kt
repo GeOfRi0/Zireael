@@ -60,9 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.indirici.app.domain.exception.DrmProtectedException
 import com.indirici.app.domain.model.VideoDownloadTask
-import com.indirici.app.engine.DrmDetector
 
 @OptIn(ExperimentalMaterial3Api::class)
 @SuppressLint("SetJavaScriptEnabled")
@@ -107,12 +105,6 @@ fun MiniBrowserDialog(
         if (onCloudflareSessionCaptured != null) {
             onCloudflareSessionCaptured(targetUrl, ua, cookie, targetUrl)
         } else {
-            val isDrm = try {
-                DrmDetector.assertNotDrm(url = targetUrl)
-                false
-            } catch (_: DrmProtectedException) {
-                true
-            }
             onDownloadDetectedTask(
                 VideoDownloadTask(
                     url = targetUrl,
@@ -120,8 +112,7 @@ fun MiniBrowserDialog(
                     userAgent = ua,
                     cookie = cookie,
                     pageTitle = currentPageTitle,
-                    detectedLabel = "Doğrulanmış Sayfa Oturumu",
-                    isDrmProtected = isDrm
+                    detectedLabel = "Doğrulanmış Sayfa Oturumu"
                 )
             )
         }
@@ -269,12 +260,6 @@ fun MiniBrowserDialog(
                                 setDownloadListener { downloadUrl, userAgent, _, mimetype, _ ->
                                     if (downloadUrl.isNullOrBlank()) return@setDownloadListener
                                     val cookie = runCatching { cookieManager.getCookie(downloadUrl) }.getOrNull().orEmpty()
-                                    val isDrm = try {
-                                        DrmDetector.assertNotDrm(url = downloadUrl, mimeType = mimetype)
-                                        false
-                                    } catch (_: DrmProtectedException) {
-                                        true
-                                    }
                                     val task = VideoDownloadTask(
                                         url = downloadUrl,
                                         referer = currentPageUrl,
@@ -282,8 +267,7 @@ fun MiniBrowserDialog(
                                         cookie = cookie,
                                         mimeType = mimetype,
                                         pageTitle = currentPageTitle,
-                                        detectedLabel = "Doğrudan Dosya (${mimetype ?: "dosya"})",
-                                        isDrmProtected = isDrm
+                                        detectedLabel = "Doğrudan Dosya (${mimetype ?: "dosya"})"
                                     )
                                     if (detectedTasks.none { it.url == task.url }) {
                                         detectedTasks.add(0, task)
@@ -392,11 +376,7 @@ private fun DetectedVideoBottomSheetPanel(
                     items(tasks, key = { it.url }) { task ->
                         Card(
                             colors = CardDefaults.cardColors(
-                                containerColor = if (task.isDrmProtected) {
-                                    MaterialTheme.colorScheme.errorContainer
-                                } else {
-                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                                }
+                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
                             ),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -428,34 +408,14 @@ private fun DetectedVideoBottomSheetPanel(
                                         )
                                     }
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    if (!task.isDrmProtected) {
-                                        Button(onClick = { onDownloadClick(task) }) {
-                                            Icon(
-                                                imageVector = AppIcons.Download,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text("Videoyu İndir")
-                                        }
-                                    }
-                                }
-
-                                if (task.isDrmProtected) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Button(onClick = { onDownloadClick(task) }) {
                                         Icon(
-                                            imageVector = Icons.Default.Lock,
+                                            imageVector = AppIcons.Download,
                                             contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onErrorContainer,
-                                            modifier = Modifier.size(16.dp)
+                                            modifier = Modifier.size(18.dp)
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = DrmProtectedException.DRM_UNSUPPORTED_MESSAGE,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onErrorContainer
-                                        )
+                                        Text("Videoyu İndir")
                                     }
                                 }
                             }

@@ -59,23 +59,23 @@ class FfmpegAndSnifferTest {
             url = "https://stream.example.com/live/index.m3u8?token=abc"
         )
         assertNotNull(byExtension)
-        assertFalse(byExtension!!.isDrmProtected)
+        assertEquals("HLS Video/Ses Akışı (.m3u8)", byExtension!!.label)
 
         val byContentType = VideoSnifferWebViewClient.evaluateCandidateUrl(
             url = "https://stream.example.com/live/playlist",
             contentTypeHeader = "application/vnd.apple.mpegurl; charset=utf-8"
         )
         assertNotNull(byContentType)
-        assertFalse(byContentType!!.isDrmProtected)
+        assertEquals("HLS Video/Ses Akışı (.m3u8)", byContentType!!.label)
     }
 
     @Test
-    fun `VideoSnifferWebViewClient evaluateCandidateUrl flags mpd as DRM protected`() {
+    fun `VideoSnifferWebViewClient evaluateCandidateUrl detects mpd dash stream`() {
         val mpdEval = VideoSnifferWebViewClient.evaluateCandidateUrl(
             url = "https://stream.example.com/dash/manifest.mpd"
         )
         assertNotNull(mpdEval)
-        assertTrue(mpdEval!!.isDrmProtected)
+        assertEquals("DASH / MPD Akışı", mpdEval!!.label)
     }
 
     @Test

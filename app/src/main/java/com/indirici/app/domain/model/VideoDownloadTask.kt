@@ -13,10 +13,9 @@ data class VideoDownloadTask(
     val cookie: String,
     val mimeType: String? = null,
     val pageTitle: String? = null,
-    val detectedLabel: String = "HLS Video Akışı (.m3u8)",
-    val isDrmProtected: Boolean = false
+    val detectedLabel: String = "HLS Video Akışı (.m3u8)"
 ) {
     override fun toString(): String {
-        return "VideoDownloadTask(url=$url, referer=$referer, userAgent=[REDACTED], cookie=[REDACTED], mimeType=$mimeType, isDrmProtected=$isDrmProtected)"
+        return "VideoDownloadTask(url=$url, referer=$referer, userAgent=[REDACTED], cookie=[REDACTED], mimeType=$mimeType)"
     }
 }

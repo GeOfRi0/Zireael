@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -41,7 +42,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.indirici.app.domain.model.AppSettings
 import com.indirici.app.domain.model.EngineType
@@ -204,19 +208,84 @@ fun AddDownloadDialog(
                 }
 
                 if (uiState.errorMessage != null) {
+                    var showDetails by remember(uiState.errorMessage, uiState.errorDetail) {
+                        mutableStateOf(false)
+                    }
+                    var isCopied by remember(uiState.errorMessage, uiState.errorDetail) {
+                        mutableStateOf(false)
+                    }
+
                     Card(
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.errorContainer
                         ),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            text = uiState.errorMessage,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(12.dp)
-                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = uiState.errorMessage,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+
+                            if (!uiState.errorDetail.isNullOrBlank()) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (showDetails) "Ayrıntıyı gizle" else "Ayrıntıyı göster",
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            textDecoration = TextDecoration.Underline
+                                        ),
+                                        color = MaterialTheme.colorScheme.error,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier
+                                            .clickable { showDetails = !showDetails }
+                                            .padding(vertical = 4.dp)
+                                    )
+
+                                    if (showDetails) {
+                                        TextButton(
+                                            onClick = {
+                                                clipboardManager.setText(AnnotatedString(uiState.errorDetail))
+                                                isCopied = true
+                                            }
+                                        ) {
+                                            Text(
+                                                text = if (isCopied) "Kopyalandı!" else "Kopyala",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onErrorContainer
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (showDetails) {
+                                    HorizontalDivider(
+                                        color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.2f),
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    )
+                                    SelectionContainer {
+                                        Text(
+                                            text = uiState.errorDetail,
+                                            color = MaterialTheme.colorScheme.onErrorContainer,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 

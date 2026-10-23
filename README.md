@@ -19,4 +19,4 @@ Zireael v2.0.0, Android 8.0+ (API 26+) cihazlar için geliştirilmiş çok parç
 4. **Uygulama İçi Mini Tarayıcı & Güvenli Oturum Yönetimi (`VideoSnifferWebViewClient` & `EphemeralSessionStore`):**
    - Sayfadaki `.m3u8` ve medya akışlarını otomatik yakalar ve alt panelde **"Videoyu İndir"** seçeneği sunar.
    - Cloudflare doğrulaması geçildiğinde oluşan `Cookie`, `Referer` ve `User-Agent` bilgileri **yalnızca RAM'de**, **yalnızca ilgili site (domain)** ve **yalnızca ilgili indirme süresince** tutulur; diske/veritabanına yazılmaz, loglanmaz ve indirme bittiğinde silinir.
-   - **DRM Kuralı:** DRM korumalı içerikler (`.mpd`, Widevine, PlayReady, FairPlay, `SAMPLE-AES`) tespit edildiğinde aşılmaya çalışılmaz ve kullanıcıya `"Bu içerik DRM korumalı, desteklenmiyor"` uyarısı gösterilir.
+

@@ -13,10 +13,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
-import com.indirici.app.domain.exception.DrmProtectedException
 import com.indirici.app.domain.model.VideoDownloadTask
 import com.indirici.app.engine.DetectedMediaCategory
-import com.indirici.app.engine.DrmDetector
 import com.indirici.app.engine.FfmpegHlsEngine
 import com.indirici.app.engine.HlsPlaylistInspector
 import com.indirici.app.engine.MediaFileDetector
@@ -195,8 +193,7 @@ class VideoSnifferWebViewClient(
                 referer = referer,
                 userAgent = userAgent,
                 mimeType = evaluation.mimeType,
-                label = evaluation.label,
-                isDrm = evaluation.isDrmProtected
+                label = evaluation.label
             )
         }
     }
@@ -247,15 +244,8 @@ class VideoSnifferWebViewClient(
 
         val content = knownContent ?: fetchText(url, referer, userAgent, MAX_MANIFEST_BYTES, rangeEnd = null)?.body
         var label = "HLS Video/Ses Akışı (.m3u8)"
-        var isDrm = false
 
         if (content != null && HlsPlaylistInspector.isPlaylistContent(content)) {
-            isDrm = try {
-                DrmDetector.assertNotDrm(url = url, manifestSample = content)
-                false
-            } catch (_: DrmProtectedException) {
-                true
-            }
             val summary = HlsPlaylistInspector.parse(url, content)
             if (summary.isMaster) {
                 childPlaylistUrls.addAll(summary.childPlaylistUris)
@@ -287,8 +277,7 @@ class VideoSnifferWebViewClient(
             referer = referer,
             userAgent = userAgent,
             mimeType = mimeType ?: "application/vnd.apple.mpegurl",
-            label = label,
-            isDrm = isDrm
+            label = label
         )
     }
 
@@ -297,8 +286,7 @@ class VideoSnifferWebViewClient(
         referer: String,
         userAgent: String,
         mimeType: String?,
-        label: String,
-        isDrm: Boolean
+        label: String
     ) {
         if (!seenUrls.add(url)) return
 
@@ -311,8 +299,7 @@ class VideoSnifferWebViewClient(
             cookie = effectiveCookie,
             mimeType = mimeType,
             pageTitle = currentPageTitle,
-            detectedLabel = label,
-            isDrmProtected = isDrm
+            detectedLabel = label
         )
 
         mainHandler.post {
@@ -369,8 +356,7 @@ class VideoSnifferWebViewClient(
                             referer = referer,
                             userAgent = userAgent,
                             mimeType = result.contentType ?: eval.mimeType,
-                            label = eval.label,
-                            isDrm = eval.isDrmProtected
+                            label = eval.label
                         )
                     }
                 }
@@ -465,7 +451,6 @@ class VideoSnifferWebViewClient(
     data class SniffEvaluation(
         val mimeType: String?,
         val label: String,
-        val isDrmProtected: Boolean,
         val category: DetectedMediaCategory = DetectedMediaCategory.UNKNOWN
     ) {
         val isHlsManifest: Boolean get() = category == DetectedMediaCategory.HLS_MANIFEST
@@ -583,18 +568,8 @@ class VideoSnifferWebViewClient(
             if (lowerUrl.contains(".mpd") || cleanMime == "application/dash+xml") {
                 return SniffEvaluation(
                     mimeType = cleanMime ?: "application/dash+xml",
-                    label = "DASH / MPD Akışı (DRM Korumalı)",
-                    isDrmProtected = true
-                )
-            }
-
-            try {
-                DrmDetector.assertNotDrm(url = url, mimeType = cleanMime)
-            } catch (_: DrmProtectedException) {
-                return SniffEvaluation(
-                    mimeType = cleanMime,
-                    label = "DRM Korumalı Akış",
-                    isDrmProtected = true
+                    label = "DASH / MPD Akışı",
+                    category = DetectedMediaCategory.HLS_MANIFEST
                 )
             }
 
@@ -607,7 +582,6 @@ class VideoSnifferWebViewClient(
                 return SniffEvaluation(
                     mimeType = cleanMime?.takeIf { it.contains("mpegurl") } ?: "application/vnd.apple.mpegurl",
                     label = "HLS Video/Ses Akışı (.m3u8)",
-                    isDrmProtected = false,
                     category = DetectedMediaCategory.HLS_MANIFEST
                 )
             }
@@ -619,25 +593,21 @@ class VideoSnifferWebViewClient(
                 DetectedMediaCategory.DIRECT_AUDIO -> SniffEvaluation(
                     mimeType = cleanMime ?: MediaFileDetector.resolveMimeFromExtension(ext),
                     label = "Ses Dosyası (.${ext ?: "ses"})",
-                    isDrmProtected = false,
                     category = category
                 )
                 DetectedMediaCategory.DIRECT_VIDEO -> SniffEvaluation(
                     mimeType = cleanMime ?: MediaFileDetector.resolveMimeFromExtension(ext),
                     label = "Video Dosyası (.${ext ?: "video"})",
-                    isDrmProtected = false,
                     category = category
                 )
                 DetectedMediaCategory.STREAM_SEGMENT -> SniffEvaluation(
                     mimeType = cleanMime ?: MediaFileDetector.resolveMimeFromExtension(ext),
                     label = "Medya Akış Parçası (.${ext ?: "ts"})",
-                    isDrmProtected = false,
                     category = category
                 )
                 DetectedMediaCategory.HLS_MANIFEST -> SniffEvaluation(
                     mimeType = cleanMime ?: "application/vnd.apple.mpegurl",
                     label = "HLS Video/Ses Akışı (.m3u8)",
-                    isDrmProtected = false,
                     category = category
                 )
                 else -> null

@@ -13,8 +13,8 @@ android {
         applicationId = "com.zireael.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 203
-        versionName = "2.0.3"
+        versionCode = 204
+        versionName = "2.1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -57,6 +57,19 @@ android {
         jniLibs {
             useLegacyPackaging = true
             pickFirsts += setOf("**/*.so")
+        }
+    }
+
+    testOptions {
+        unitTests.all {
+            it.testLogging {
+                events("passed", "skipped", "failed")
+                showExceptions = true
+                showCauses = true
+                showStackTraces = true
+                showStandardStreams = true
+                exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+            }
         }
     }
 }

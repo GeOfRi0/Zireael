@@ -47,7 +47,7 @@ object HlsPlaylistInspector {
         var endList = false
 
         for (rawLine in text.lineSequence()) {
-            val line = rawLine.trim()
+            val line = rawLine.trim { it.isWhitespace() || it == '\uFEFF' }
             if (line.isEmpty()) continue
             val upper = line.uppercase()
             when {

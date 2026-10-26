@@ -19,6 +19,7 @@ import com.indirici.app.engine.MediaFileDetector
 import com.indirici.app.engine.MediaFormatCatalog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -204,7 +205,7 @@ class DownloadQueueCoordinator(
             if (finalEngineType == EngineType.MEDIA) {
                 MediaFormatCatalog.sanitizeTitleToFileName(rawCustom, formatToUse)
             } else {
-                rawCustom
+                com.indirici.app.data.storage.DownloadsFileSaver.sanitizeFileName(rawCustom)
             }
         } ?: when (finalEngineType) {
             EngineType.MEDIA -> MediaFormatCatalog.sanitizeTitleToFileName(
@@ -215,7 +216,11 @@ class DownloadQueueCoordinator(
             EngineType.DIRECT -> {
                 val seg = cleanUrl.substringBefore('#').substringBefore('?').substringAfterLast('/')
                 val decoded = runCatching { java.net.URLDecoder.decode(seg, "UTF-8") }.getOrDefault(seg).trim()
-                if (decoded.isNotBlank() && decoded.contains('.')) decoded else ""
+                if (decoded.isNotBlank() && decoded.contains('.')) {
+                    com.indirici.app.data.storage.DownloadsFileSaver.sanitizeFileName(decoded)
+                } else {
+                    ""
+                }
             }
         }
 
@@ -267,7 +272,7 @@ class DownloadQueueCoordinator(
     fun pauseDownload(taskId: Long) {
         scope.launch {
             downloadDao.updateTaskStatus(taskId, DownloadStatus.PAUSED.name, null)
-            activeJobs.remove(taskId)?.cancel()
+            activeJobs[taskId]?.cancel()
             pumpQueue()
         }
     }
@@ -282,7 +287,7 @@ class DownloadQueueCoordinator(
 
     fun cancelDownload(taskId: Long) {
         scope.launch {
-            activeJobs.remove(taskId)?.cancel()
+            activeJobs[taskId]?.cancel()
             val task = downloadDao.getTaskById(taskId)
             task?.tempFilePath?.let { path ->
                 runCatching { File(path).deleteRecursively() }
@@ -296,7 +301,7 @@ class DownloadQueueCoordinator(
 
     fun deleteDownload(taskId: Long) {
         scope.launch {
-            activeJobs.remove(taskId)?.cancel()
+            activeJobs[taskId]?.cancel()
             val task = downloadDao.getTaskById(taskId)
             task?.tempFilePath?.let { path ->
                 runCatching { File(path).deleteRecursively() }
@@ -313,7 +318,7 @@ class DownloadQueueCoordinator(
             val activeIds = activeJobs.keys().toList()
             for (id in activeIds) {
                 downloadDao.updateTaskStatus(id, DownloadStatus.PAUSED.name, null)
-                activeJobs.remove(id)?.cancel()
+                activeJobs[id]?.cancel()
             }
             val queued = downloadDao.getTasksByStatus(DownloadStatus.QUEUED.name)
             for (task in queued) {
@@ -325,7 +330,7 @@ class DownloadQueueCoordinator(
     fun pumpQueue() {
         scope.launch {
             scheduleMutex.withLock {
-                val finishedIds = activeJobs.filterValues { !it.isActive }.keys
+                val finishedIds = activeJobs.filterValues { it.isCompleted }.keys
                 finishedIds.forEach { activeJobs.remove(it) }
 
                 val settings = settingsRepository.settingsFlow.first()
@@ -345,12 +350,12 @@ class DownloadQueueCoordinator(
     }
 
     fun hasActiveOrQueuedWork(): Boolean {
-        return activeJobs.values.any { it.isActive }
+        return activeJobs.values.any { !it.isCompleted }
     }
 
     private fun startTaskExecution(task: DownloadTaskEntity) {
         val taskId = task.id
-        val job = scope.launch {
+        val job = scope.launch(start = CoroutineStart.LAZY) {
             try {
                 downloadDao.updateTaskStatus(taskId, DownloadStatus.DOWNLOADING.name, null)
                 val engineType = runCatching { EngineType.valueOf(task.engineType) }
@@ -398,11 +403,13 @@ class DownloadQueueCoordinator(
                     errorMessage = e.message ?: "Bilinmeyen indirme hatası"
                 )
             } finally {
-                activeJobs.remove(taskId)
+                // Yalnızca kendi kaydını sil; duraklat/devam sonrası başlayan yeni işi silme.
+                activeJobs.remove(taskId, coroutineContext[Job])
                 pumpQueue()
             }
         }
         activeJobs[taskId] = job
+        job.start()
     }
 
     private fun ensureForegroundServiceRunning() {

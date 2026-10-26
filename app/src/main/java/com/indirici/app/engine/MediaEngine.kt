@@ -14,13 +14,27 @@ import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.io.File
 import java.io.IOException
 import kotlin.coroutines.coroutineContext
+
+/**
+ * yt-dlp güncelleme işlemi sonucunu temsil eder.
+ */
+sealed class YtDlpUpdateResult {
+    data class Updated(val version: String) : YtDlpUpdateResult()
+    data class AlreadyUpToDate(val version: String) : YtDlpUpdateResult()
+    data class Error(val userMessage: String, val cause: Throwable? = null) : YtDlpUpdateResult()
+}
 
 /**
  * V2 (Video/Ses Siteleri ve HLS / H.265 / AAC / TS / fMP4 Akış Motoru):
@@ -44,26 +58,52 @@ class MediaEngine(
     @Volatile
     private var cachedYtDlpVersion: String? = null
 
+    private val _ytDlpVersionState = MutableStateFlow<String>("Bilinmiyor")
+    val ytDlpVersionState: StateFlow<String> = _ytDlpVersionState.asStateFlow()
+
     suspend fun ensureInitialized() {
         if (isInitialized) return
         initMutex.withLock {
-            if (isInitialized) return
-            withContext(Dispatchers.IO) {
-                YoutubeDL.getInstance().init(context)
-                runCatching { FFmpeg.getInstance().init(context) }
-                isInitialized = true
-            }
+            ensureInitializedLocked()
         }
     }
 
+    private fun ensureInitializedLocked() {
+        if (isInitialized) return
+        YoutubeDL.getInstance().init(context)
+        runCatching { FFmpeg.getInstance().init(context) }
+        isInitialized = true
+    }
+
+    private fun readYtDlpVersionLocked(): String {
+        val fromPrefs = runCatching {
+            YoutubeDL.getInstance().version(context)?.trim()?.takeIf { it.isNotBlank() }
+        }.getOrNull()
+        if (fromPrefs != null) {
+            return fromPrefs
+        }
+        val fromCmd = runCatching {
+            val req = YoutubeDLRequest(emptyList<String>()).addOption("--version")
+            YoutubeDL.getInstance().execute(req, null, null).out.trim().takeIf { it.isNotBlank() }
+        }.getOrNull()
+        return fromCmd ?: "Bilinmiyor"
+    }
+
+    /**
+     * Kurulu yt-dlp sürümünü döndürür ve UI StateFlow'unu günceller.
+     */
     suspend fun getYtDlpVersion(): String {
-        cachedYtDlpVersion?.let { return it }
+        cachedYtDlpVersion?.let {
+            _ytDlpVersionState.value = it
+            return it
+        }
         return withContext(Dispatchers.IO) {
             val fromPrefs = runCatching {
                 YoutubeDL.getInstance().version(context)?.trim()?.takeIf { it.isNotBlank() }
             }.getOrNull()
             if (fromPrefs != null) {
                 cachedYtDlpVersion = fromPrefs
+                _ytDlpVersionState.value = fromPrefs
                 return@withContext fromPrefs
             }
 
@@ -74,7 +114,36 @@ class MediaEngine(
             }.getOrNull()
             val version = fromCmd ?: "Bilinmiyor"
             cachedYtDlpVersion = version
+            _ytDlpVersionState.value = version
             version
+        }
+    }
+
+    /**
+     * yt-dlp video motorunu STABLE kanalından günceller.
+     * ensureInitialized ile aynı initMutex kilidini paylaşarak eşzamanlı çakışmaları engeller.
+     */
+    suspend fun updateYtDlp(): YtDlpUpdateResult = withContext(Dispatchers.IO) {
+        initMutex.withLock {
+            ensureInitializedLocked()
+            try {
+                val status = withTimeout(90_000L) {
+                    YoutubeDL.getInstance().updateYoutubeDL(context, YoutubeDL.UpdateChannel.STABLE)
+                }
+                cachedYtDlpVersion = null
+                val newVersion = readYtDlpVersionLocked()
+                cachedYtDlpVersion = newVersion
+                _ytDlpVersionState.value = newVersion
+
+                when (status) {
+                    YoutubeDL.UpdateStatus.DONE -> YtDlpUpdateResult.Updated(newVersion)
+                    YoutubeDL.UpdateStatus.ALREADY_UP_TO_DATE -> YtDlpUpdateResult.AlreadyUpToDate(newVersion)
+                    else -> YtDlpUpdateResult.AlreadyUpToDate(newVersion)
+                }
+            } catch (e: Exception) {
+                val friendly = mapUpdateErrorToUserMessage(e)
+                YtDlpUpdateResult.Error(userMessage = friendly, cause = e)
+            }
         }
     }
 
@@ -433,6 +502,35 @@ class MediaEngine(
                 else -> 1.0
             }
             return (value * multiplier).toLong()
+        }
+
+        internal fun mapUpdateErrorToUserMessage(e: Throwable): String {
+            val message = e.message.orEmpty().lowercase()
+            return when {
+                e is TimeoutCancellationException || message.contains("timed out") || message.contains("timeout") -> {
+                    "Güncelleme işlemi zaman aşımına uğradı. İnternet bağlantınızı kontrol edin."
+                }
+                e is java.net.UnknownHostException ||
+                message.contains("unable to resolve host") ||
+                message.contains("no address associated with hostname") ||
+                message.contains("failed to connect") ||
+                message.contains("connection refused") ||
+                message.contains("network is unreachable") -> {
+                    "Güncelleme sunucusuna bağlanılamadı. İnternet bağlantınızı kontrol edin."
+                }
+                message.contains("rate limit") || message.contains("api rate limit exceeded") || message.contains("403") -> {
+                    "GitHub istek sınırı aşıldı. Lütfen daha sonra tekrar deneyin."
+                }
+                message.contains("404") || message.contains("not found") -> {
+                    "Güncelleme paketi bulunamadı."
+                }
+                message.contains("space") || message.contains("enospc") -> {
+                    "Yetersiz depolama alanı. Lütfen cihazınızda yer açın."
+                }
+                else -> {
+                    "Video motoru güncellenemedi. Lütfen daha sonra tekrar deneyin."
+                }
+            }
         }
     }
 }

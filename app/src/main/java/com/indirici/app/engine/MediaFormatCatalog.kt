@@ -287,8 +287,6 @@ object MediaFormatCatalog {
             .replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_")
             .replace(Regex("\\s+"), " ")
             .trim()
-            .take(110)
-            .ifBlank { "medya_${System.currentTimeMillis()}" }
 
         for (suffix in knownStripExtensions) {
             if (cleanedBase.endsWith(suffix, ignoreCase = true)) {
@@ -296,6 +294,12 @@ object MediaFormatCatalog {
                 break
             }
         }
+
+        cleanedBase = cleanedBase
+            .trimEnd { it == '.' || it.isWhitespace() }
+            .take(110)
+            .trimEnd { it == '.' || it.isWhitespace() }
+            .ifBlank { "medya_${System.currentTimeMillis()}" }
 
         return "${cleanedBase.ifBlank { "medya" }}.$ext"
     }

@@ -89,4 +89,26 @@ class MediaFormatCatalogTest {
         )
         assertEquals("Film_Fragmani.mkv", sanitizedMkv)
     }
+
+    @Test
+    fun `sanitizeTitleToFileName strips existing media extension before length truncation to avoid corrupting suffix`() {
+        val longTitleWithExt = "A".repeat(107) + ".mp4"
+        val result = MediaFormatCatalog.sanitizeTitleToFileName(
+            rawTitle = longTitleWithExt,
+            formatId = MediaFormatCatalog.FORMAT_VIDEO_1080P
+        )
+        assertFalse(result.contains(".mp.mp4"))
+        assertTrue(result.endsWith(".mp4"))
+        assertEquals("A".repeat(107) + ".mp4", result)
+    }
+
+    @Test
+    fun `sanitizeTitleToFileName trims trailing dots and spaces before appending format extension`() {
+        val titleWithTrailing = "My Video.. "
+        val result = MediaFormatCatalog.sanitizeTitleToFileName(
+            rawTitle = titleWithTrailing,
+            formatId = MediaFormatCatalog.FORMAT_VIDEO_720P
+        )
+        assertEquals("My Video.mp4", result)
+    }
 }

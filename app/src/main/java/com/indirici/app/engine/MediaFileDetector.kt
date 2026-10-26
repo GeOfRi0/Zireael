@@ -7,6 +7,7 @@ enum class DetectedMediaCategory {
     DIRECT_VIDEO,
     STREAM_SEGMENT,
     HLS_MANIFEST,
+    DASH_MANIFEST,
     UNKNOWN
 }
 
@@ -41,6 +42,10 @@ object MediaFileDetector {
 
     val supportedHlsExtensions = setOf(
         "m3u8", "m3u"
+    )
+
+    val supportedDashExtensions = setOf(
+        "mpd"
     )
 
     private val mimeToExtensionMap = mapOf(
@@ -82,7 +87,8 @@ object MediaFileDetector {
         "video/mp2t" to "ts",
         "video/vnd.dlna.mpeg-tts" to "ts",
         "video/iso.segment" to "m4s",
-        "application/mp4" to "fmp4"
+        "application/mp4" to "fmp4",
+        "application/dash+xml" to "mpd"
     )
 
     private val extensionToMimeMap = mapOf(
@@ -106,7 +112,8 @@ object MediaFileDetector {
         "mts" to "video/mp2t",
         "fmp4" to "video/mp4",
         "m4s" to "video/iso.segment",
-        "m3u8" to "application/vnd.apple.mpegurl"
+        "m3u8" to "application/vnd.apple.mpegurl",
+        "mpd" to "application/dash+xml"
     )
 
     /**
@@ -123,6 +130,10 @@ object MediaFileDetector {
             cleanMime == "audio/x-mpegurl"
         ) {
             return DetectedMediaCategory.HLS_MANIFEST
+        }
+
+        if (ext in supportedDashExtensions || cleanMime == "application/dash+xml") {
+            return DetectedMediaCategory.DASH_MANIFEST
         }
 
         if (ext in supportedAudioExtensions || cleanMime?.startsWith("audio/") == true) {
@@ -147,6 +158,13 @@ object MediaFileDetector {
      */
     fun isHlsManifestUrl(url: String, mimeType: String? = null): Boolean {
         return classifyUrl(url, mimeType) == DetectedMediaCategory.HLS_MANIFEST
+    }
+
+    /**
+     * URL'nin bir DASH (.mpd) akışı olup olmadığını kontrol eder.
+     */
+    fun isDashManifestUrl(url: String, mimeType: String? = null): Boolean {
+        return classifyUrl(url, mimeType) == DetectedMediaCategory.DASH_MANIFEST
     }
 
     /**
@@ -257,7 +275,7 @@ object MediaFileDetector {
     }
 
     private const val EXT_PATTERN =
-        "(?:wav|ogg|oga|flac|opus|mp3|m4a|aac|mp4|mkv|mov|webm|avi|wmv|m4v|m3u8|ts|m2ts|mts|fmp4|m4s)"
+        "(?:wav|ogg|oga|flac|opus|mp3|m4a|aac|mp4|mkv|mov|webm|avi|wmv|m4v|m3u8|mpd|ts|m2ts|mts|fmp4|m4s)"
 
     private val ABSOLUTE_MEDIA_URL_REGEX = Regex(
         """https?:\\?/\\?/[^\s"'<>\\]+?\.$EXT_PATTERN(?:\?[^\s"'<>\\]*)?""",

@@ -220,6 +220,14 @@ class DirectEngine(
         tempFile.parentFile?.mkdirs()
 
         var chunks = downloadDao.getChunksForTask(taskId)
+        // .part dosyası silinmişse (kullanıcı/dosya yöneticisi) DB'deki ilerleme geçersizdir; aksi halde
+        // tamamlanmış sayılan parçalar atlanır ve sıfırlarla dolu dosya başarılı diye kaydedilir.
+        if (chunks.isNotEmpty() && !tempFile.exists() &&
+            chunks.any { it.isCompleted || it.downloadedBytes > 0L }
+        ) {
+            downloadDao.deleteChunksForTask(taskId)
+            chunks = emptyList()
+        }
         if (chunks.isEmpty()) {
             val slices = ChunkCalculator.calculateSlices(
                 totalBytes = totalBytes,
@@ -454,6 +462,32 @@ class DirectEngine(
                     }
                 }
 
+                val expectedChunkBytes = if (supportsRange && chunk.endByte >= 0L) {
+                    chunk.endByte - chunk.startByte + 1L
+                } else {
+                    -1L
+                }
+
+                if (expectedChunkBytes > 0L && chunkDownloaded < expectedChunkBytes) {
+                    downloadDao.updateChunkProgress(
+                        taskId = taskId,
+                        chunkIndex = chunk.chunkIndex,
+                        downloadedBytes = chunkDownloaded,
+                        isCompleted = false
+                    )
+                    throw IOException("Parça ${chunk.chunkIndex + 1} eksik indirildi ($chunkDownloaded / $expectedChunkBytes byte)")
+                }
+
+                if (!supportsRange && totalBytes > 0L && chunkDownloaded < totalBytes) {
+                    downloadDao.updateChunkProgress(
+                        taskId = taskId,
+                        chunkIndex = chunk.chunkIndex,
+                        downloadedBytes = chunkDownloaded,
+                        isCompleted = false
+                    )
+                    throw IOException("İndirme eksik tamamlandı ($chunkDownloaded / $totalBytes byte)")
+                }
+
                 downloadDao.updateChunkProgress(
                     taskId = taskId,
                     chunkIndex = chunk.chunkIndex,
@@ -517,14 +551,14 @@ class DirectEngine(
                 val decoded = runCatching {
                     URLDecoder.decode(utf8Match.groupValues[1].trim('"', ' '), "UTF-8")
                 }.getOrNull()
-                if (!decoded.isNullOrBlank()) return decoded
+                if (!decoded.isNullOrBlank()) return DownloadsFileSaver.sanitizeFileName(decoded)
             }
 
             val normalMatch = Regex("filename=\"?([^\";]+)\"?", RegexOption.IGNORE_CASE)
                 .find(contentDisposition)
             if (normalMatch != null) {
                 val name = normalMatch.groupValues[1].trim()
-                if (name.isNotBlank()) return name
+                if (name.isNotBlank()) return DownloadsFileSaver.sanitizeFileName(name)
             }
         }
 
@@ -535,7 +569,7 @@ class DirectEngine(
             .trim()
 
         if (decodedSegment.isNotBlank() && decodedSegment.contains('.')) {
-            return decodedSegment
+            return DownloadsFileSaver.sanitizeFileName(decodedSegment)
         }
 
         // Önce MediaFileDetector'un genişletilmiş (.wav, .ogg, .flac, .opus, .mkv, .mov, .webm, .avi, .wmv, .ts, .fmp4, .m4s) tablosuna bak
@@ -544,7 +578,7 @@ class DirectEngine(
             ?: "bin"
 
         val base = decodedSegment.ifBlank { "indirilen_${System.currentTimeMillis()}" }
-        return "$base.$ext"
+        return DownloadsFileSaver.sanitizeFileName("$base.$ext")
     }
 
     private class SingleStreamFallbackException : Exception("Sunucu çoklu parça yerine tek akış döndürdü")

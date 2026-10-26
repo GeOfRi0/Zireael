@@ -31,7 +31,7 @@ object HlsPlaylistInspector {
 
     fun isPlaylistContent(text: String?): Boolean {
         if (text.isNullOrEmpty()) return false
-        return text.trimStart('\uFEFF', ' ', '\t', '\r', '\n').startsWith("#EXTM3U")
+        return text.trimStart('\uFEFF', ' ', '\t', '\r', '\n').startsWith("#EXTM3U", ignoreCase = true)
     }
 
     fun parse(baseUrl: String, text: String): HlsPlaylistSummary {

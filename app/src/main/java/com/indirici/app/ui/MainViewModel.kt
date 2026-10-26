@@ -13,8 +13,16 @@ import com.indirici.app.domain.model.VideoDownloadTask
 import com.indirici.app.engine.EngineRouter
 import com.indirici.app.engine.MediaEngine
 import com.indirici.app.engine.MediaFormatCatalog
+import com.indirici.app.engine.YtDlpUpdateResult
 import com.indirici.app.service.DownloadQueueCoordinator
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,11 +39,24 @@ data class AddDownloadUiState(
     val errorDetail: String? = null
 )
 
+sealed class YtDlpUpdateUiState {
+    data object Idle : YtDlpUpdateUiState()
+    data object Updating : YtDlpUpdateUiState()
+    data class Success(val message: String) : YtDlpUpdateUiState()
+    data class Error(val message: String) : YtDlpUpdateUiState()
+}
+
 class MainViewModel(
     private val queueCoordinator: DownloadQueueCoordinator,
     private val settingsRepository: SettingsRepository,
     private val engineRouter: EngineRouter
 ) : ViewModel() {
+
+    private var analyzeJob: Job? = null
+
+    private val _errorEvents = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    /** Kullanıcıya gösterilmesi gereken tek seferlik hata mesajları. */
+    val errorEvents: SharedFlow<String> = _errorEvents.asSharedFlow()
 
     val downloads: StateFlow<List<DownloadItem>> = queueCoordinator.downloadsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -45,6 +66,16 @@ class MainViewModel(
 
     private val _addDialogState = MutableStateFlow(AddDownloadUiState())
     val addDialogState: StateFlow<AddDownloadUiState> = _addDialogState.asStateFlow()
+
+    private val _ytDlpVersion = MutableStateFlow<String>("Bilinmiyor")
+    val ytDlpVersion: StateFlow<String> = _ytDlpVersion.asStateFlow()
+
+    private val _ytDlpUpdateState = MutableStateFlow<YtDlpUpdateUiState>(YtDlpUpdateUiState.Idle)
+    val ytDlpUpdateState: StateFlow<YtDlpUpdateUiState> = _ytDlpUpdateState.asStateFlow()
+
+    init {
+        loadYtDlpVersion()
+    }
 
     fun resetAddDialogState() {
         queueCoordinator.clearPreEnqueueSession()
@@ -102,7 +133,8 @@ class MainViewModel(
             return
         }
 
-        viewModelScope.launch {
+        analyzeJob?.cancel()
+        analyzeJob = viewModelScope.launch {
             _addDialogState.update {
                 it.copy(
                     isAnalyzing = true,
@@ -113,6 +145,8 @@ class MainViewModel(
             }
             try {
                 val meta = queueCoordinator.analyzeUrl(trimmed)
+                // Bu arada yeni bir analiz başladıysa eski sonucu yazma.
+                currentCoroutineContext().ensureActive()
                 val initialFormat = meta.availableFormats.firstOrNull {
                     it.formatId == MediaFormatCatalog.DEFAULT_FORMAT_ID
                 }?.formatId ?: meta.availableFormats.firstOrNull()?.formatId ?: MediaFormatCatalog.DEFAULT_FORMAT_ID
@@ -126,6 +160,8 @@ class MainViewModel(
                         errorDetail = null
                     )
                 }
+            } catch (ce: CancellationException) {
+                throw ce
             } catch (e: Exception) {
                 val mediaEx = (e as? MediaEngineException)
                     ?: (e.cause as? MediaEngineException)
@@ -183,13 +219,17 @@ class MainViewModel(
             try {
                 val currentState = _addDialogState.value
                 val detectedEngine = engineRouter.detectEngineForUrl(trimmed)
+                // Metadata başka bir link için analiz edilmişse (kullanıcı URL'yi değiştirdi) kullanılmaz.
+                val currentMeta = currentState.metadata?.takeIf {
+                    it.originalUrl.trim() == trimmed || it.resolvedUrl.trim() == trimmed
+                }
 
-                if (detectedEngine.engineType == EngineType.MEDIA && currentState.metadata == null) {
+                if (detectedEngine.engineType == EngineType.MEDIA && currentMeta == null) {
                     analyzeUrl(trimmed)
                     return@launch
                 }
 
-                val meta = currentState.metadata
+                val meta = currentMeta
                 val targetUrl = meta?.resolvedUrl?.takeIf { it.isNotBlank() } ?: trimmed
                 val engineType = meta?.engineType ?: detectedEngine.engineType
                 val chosenFormatId = if (engineType == EngineType.MEDIA) {
@@ -242,8 +282,14 @@ class MainViewModel(
 
     fun startSniffedVideoDownload(task: VideoDownloadTask) {
         viewModelScope.launch {
-            runCatching {
+            try {
                 queueCoordinator.enqueueSniffedVideoTask(task)
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (e: Exception) {
+                _errorEvents.tryEmit(
+                    "İndirme başlatılamadı: ${e.message?.takeIf { it.isNotBlank() } ?: "Bilinmeyen hata"}"
+                )
             }
         }
     }
@@ -259,6 +305,62 @@ class MainViewModel(
                 defaultChunkCount = defaultChunks,
                 maxConcurrentDownloads = maxConcurrent
             )
+        }
+    }
+
+    fun loadYtDlpVersion() {
+        viewModelScope.launch {
+            val engine = engineRouter.mediaEngine as? MediaEngine
+            if (engine != null) {
+                _ytDlpVersion.value = engine.getYtDlpVersion()
+            }
+        }
+    }
+
+    fun resetYtDlpUpdateState() {
+        _ytDlpUpdateState.value = YtDlpUpdateUiState.Idle
+    }
+
+    fun updateYtDlp() {
+        val mediaEngine = engineRouter.mediaEngine as? MediaEngine ?: return
+
+        val hasActive = downloads.value.any { it.status.isActiveOrQueued }
+        if (hasActive) {
+            val errorMsg = "Aktif indirme devam ederken video motoru güncellenemez."
+            _ytDlpUpdateState.value = YtDlpUpdateUiState.Error(errorMsg)
+            _errorEvents.tryEmit(errorMsg)
+            return
+        }
+
+        if (_ytDlpUpdateState.value is YtDlpUpdateUiState.Updating) return
+
+        _ytDlpUpdateState.value = YtDlpUpdateUiState.Updating
+
+        viewModelScope.launch {
+            try {
+                when (val result = mediaEngine.updateYtDlp()) {
+                    is YtDlpUpdateResult.Updated -> {
+                        val msg = "Video motoru başarıyla güncellendi (v${result.version})."
+                        _ytDlpVersion.value = result.version
+                        _ytDlpUpdateState.value = YtDlpUpdateUiState.Success(msg)
+                        _errorEvents.tryEmit(msg)
+                    }
+                    is YtDlpUpdateResult.AlreadyUpToDate -> {
+                        val msg = "Video motoru zaten en güncel sürümde (v${result.version})."
+                        _ytDlpVersion.value = result.version
+                        _ytDlpUpdateState.value = YtDlpUpdateUiState.Success(msg)
+                        _errorEvents.tryEmit(msg)
+                    }
+                    is YtDlpUpdateResult.Error -> {
+                        _ytDlpUpdateState.value = YtDlpUpdateUiState.Error(result.userMessage)
+                        _errorEvents.tryEmit(result.userMessage)
+                    }
+                }
+            } catch (e: Exception) {
+                val errorMsg = "Video motoru güncellenirken beklenmeyen bir hata oluştu."
+                _ytDlpUpdateState.value = YtDlpUpdateUiState.Error(errorMsg)
+                _errorEvents.tryEmit(errorMsg)
+            }
         }
     }
 

@@ -1,9 +1,13 @@
 package com.indirici.app.ui
 
 import com.indirici.app.domain.exception.MediaEngineException
+import com.indirici.app.engine.MediaEngine
+import kotlinx.coroutines.TimeoutCancellationException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.IOException
+import java.net.UnknownHostException
 
 class ErrorPresentationTest {
 
@@ -47,5 +51,43 @@ class ErrorPresentationTest {
         assertEquals("Bu link indirilemedi.", state.errorMessage)
         assertTrue(state.errorDetail!!.contains("yt-dlp sürümü: 2024.10.22"))
         assertTrue(state.errorDetail!!.contains("ERROR: Private video"))
+    }
+
+    @Test
+    fun `mapUpdateErrorToUserMessage maps network errors to friendly connection message`() {
+        val unknownHost = UnknownHostException("Unable to resolve host \"api.github.com\"")
+        val timedOut = IOException("connect timed out")
+        val timeoutCancellation = TimeoutCancellationException("Timed out waiting for 90000 ms")
+
+        assertEquals(
+            "Güncelleme sunucusuna bağlanılamadı. İnternet bağlantınızı kontrol edin.",
+            MediaEngine.mapUpdateErrorToUserMessage(unknownHost)
+        )
+        assertEquals(
+            "Güncelleme işlemi zaman aşımına uğradı. İnternet bağlantınızı kontrol edin.",
+            MediaEngine.mapUpdateErrorToUserMessage(timedOut)
+        )
+        assertEquals(
+            "Güncelleme işlemi zaman aşımına uğradı. İnternet bağlantınızı kontrol edin.",
+            MediaEngine.mapUpdateErrorToUserMessage(timeoutCancellation)
+        )
+    }
+
+    @Test
+    fun `mapUpdateErrorToUserMessage maps rate limit and 403 to rate limit message`() {
+        val rateLimitEx = IOException("HTTP 403: API rate limit exceeded for IP")
+        assertEquals(
+            "GitHub istek sınırı aşıldı. Lütfen daha sonra tekrar deneyin.",
+            MediaEngine.mapUpdateErrorToUserMessage(rateLimitEx)
+        )
+    }
+
+    @Test
+    fun `mapUpdateErrorToUserMessage maps generic errors to general retry message`() {
+        val genericEx = IllegalStateException("Something broke unexpectedly")
+        assertEquals(
+            "Video motoru güncellenemedi. Lütfen daha sonra tekrar deneyin.",
+            MediaEngine.mapUpdateErrorToUserMessage(genericEx)
+        )
     }
 }

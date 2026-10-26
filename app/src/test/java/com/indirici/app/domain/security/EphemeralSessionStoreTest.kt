@@ -68,4 +68,26 @@ class EphemeralSessionStoreTest {
         assertFalse(text.contains("MySecretUA"))
         assertTrue(text.contains("[REDACTED]"))
     }
+
+    @Test
+    fun `resolveHeadersForUrl preserves headers for URLs with unencoded query parameters or missing scheme`() {
+        val store = EphemeralSessionStore()
+        store.putSession(
+            downloadId = 77L,
+            targetUrl = "https://cdn.example.com/stream/file.mp4",
+            userAgent = "BrowserAgent/1.0",
+            cookieHeader = "session=token123",
+            referer = "https://example.com/watch"
+        )
+
+        // URL with special chars in query parameters (breaks standard java.net.URI)
+        val queryUrl = "https://cdn.example.com/stream/file.mp4?token={auth_token}&name=video title"
+        val queryHeaders = store.resolveHeadersForUrl(77L, queryUrl)
+        assertEquals("session=token123", queryHeaders["Cookie"])
+
+        // URL without scheme
+        val schemelessUrl = "cdn.example.com/stream/file.mp4?id=123"
+        val schemelessHeaders = store.resolveHeadersForUrl(77L, schemelessUrl)
+        assertEquals("session=token123", schemelessHeaders["Cookie"])
+    }
 }

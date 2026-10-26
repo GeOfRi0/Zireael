@@ -3,9 +3,16 @@ package com.indirici.app.ui.components
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -20,11 +27,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.indirici.app.domain.model.AppSettings
+import com.indirici.app.ui.YtDlpUpdateUiState
 import kotlin.math.roundToInt
 
 @Composable
 fun SettingsDialog(
     currentSettings: AppSettings,
+    ytDlpVersion: String,
+    updateState: YtDlpUpdateUiState,
+    isDownloading: Boolean,
+    onUpdateYtDlp: () -> Unit,
     onSave: (defaultChunkCount: Int, maxConcurrentDownloads: Int) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -42,8 +54,10 @@ fun SettingsDialog(
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(18.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
@@ -113,6 +127,88 @@ fun SettingsDialog(
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.secondary
                 )
+
+                HorizontalDivider(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Video Motoru (yt-dlp)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Kurulu Sürüm",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = ytDlpVersion,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    val isUpdating = updateState is YtDlpUpdateUiState.Updating
+                    val updateButtonEnabled = !isUpdating && !isDownloading
+
+                    Button(
+                        onClick = onUpdateYtDlp,
+                        enabled = updateButtonEnabled,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (isUpdating) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Güncelleniyor...")
+                        } else {
+                            Text("Video Motorunu Güncelle")
+                        }
+                    }
+
+                    if (isDownloading) {
+                        Text(
+                            text = "Aktif indirme devam ederken video motoru güncellenemez.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+
+                    when (updateState) {
+                        is YtDlpUpdateUiState.Success -> {
+                            Text(
+                                text = updateState.message,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        is YtDlpUpdateUiState.Error -> {
+                            Text(
+                                text = updateState.message,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                        else -> Unit
+                    }
+                }
             }
         },
         confirmButton = {

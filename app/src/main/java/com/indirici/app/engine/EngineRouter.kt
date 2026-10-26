@@ -8,8 +8,8 @@ import java.net.URI
  * URL'ye veya görev türüne göre uygun indirme motorunu (DirectEngine, MediaEngine veya FfmpegHlsEngine) seçer.
  */
 class EngineRouter(
-    val directEngine: DirectEngine,
-    val mediaEngine: MediaEngine,
+    val directEngine: DownloadEngine,
+    val mediaEngine: DownloadEngine,
     val ffmpegHlsEngine: DownloadEngine
 ) {
 
@@ -53,6 +53,11 @@ class EngineRouter(
             return ffmpegHlsEngine
         }
 
+        // DASH (.mpd) akışları yt-dlp destekli MediaEngine'e yönlendirilir
+        if (MediaFileDetector.isDashManifestUrl(url)) {
+            return mediaEngine
+        }
+
         val category = MediaFileDetector.classifyUrl(url)
         if (category == DetectedMediaCategory.DIRECT_AUDIO ||
             category == DetectedMediaCategory.DIRECT_VIDEO ||
@@ -78,10 +83,15 @@ class EngineRouter(
     }
 
     private fun extractHost(url: String): String? {
-        return try {
-            URI(url.trim()).host?.lowercase()?.removePrefix("www.")
+        if (url.isBlank()) return null
+        val clean = url.trim().substringBefore('?').substringBefore('#')
+        val withScheme = if (clean.contains("://")) clean else "https://$clean"
+        val fromUri = try {
+            URI(withScheme).host
         } catch (_: Exception) {
             null
         }
+        val host = fromUri ?: Regex("""^[a-zA-Z]+://([^/?#\s:@]+)""").find(withScheme)?.groupValues?.get(1)
+        return host?.lowercase()?.removePrefix("www.")
     }
 }

@@ -40,6 +40,12 @@ class HlsPlaylistInspectorTest {
     }
 
     @Test
+    fun `detects playlist content with lowercase or mixed-case extm3u tag`() {
+        assertTrue(HlsPlaylistInspector.isPlaylistContent("#extm3u\n#extinf:5.0\nseg1.ts"))
+        assertTrue(HlsPlaylistInspector.isPlaylistContent("  #ExtM3u\n#EXT-X-STREAM-INF"))
+    }
+
+    @Test
     fun `parses master playlist variants audio renditions and best variant`() {
         val s = HlsPlaylistInspector.parse("https://cdn.example.com/v/master.m3u8?t=9", master)
         assertTrue(s.isMaster)

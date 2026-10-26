@@ -117,4 +117,26 @@ class MediaFileDetectorTest {
         assertTrue(links.contains("https://site.example.com/chunks/seg_01.m4s"))
         assertTrue(links.contains("https://site.example.com/videos/archive.mkv"))
     }
+
+    @Test
+    fun `classifyUrl and extractMediaLinksFromContent detect DASH mpd manifests`() {
+        val dashUrl = "https://cdn.example.com/stream/manifest.mpd"
+        assertEquals(DetectedMediaCategory.DASH_MANIFEST, MediaFileDetector.classifyUrl(dashUrl))
+        assertTrue(MediaFileDetector.isDashManifestUrl(dashUrl))
+
+        val dashMime = "application/dash+xml; charset=utf-8"
+        assertEquals(
+            DetectedMediaCategory.DASH_MANIFEST,
+            MediaFileDetector.classifyUrl("https://cdn.example.com/stream/unknown_stream", dashMime)
+        )
+
+        val htmlWithDash = """
+            <video data-dashjs-player src="https://cdn.example.com/dash/vod.mpd"></video>
+            <script>var relDash = "/live/manifest.mpd?sig=123";</script>
+        """.trimIndent()
+
+        val extracted = MediaFileDetector.extractMediaLinksFromContent(htmlWithDash, "https://cdn.example.com")
+        assertTrue(extracted.contains("https://cdn.example.com/dash/vod.mpd"))
+        assertTrue(extracted.contains("https://cdn.example.com/live/manifest.mpd?sig=123"))
+    }
 }

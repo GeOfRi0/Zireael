@@ -96,11 +96,15 @@ class EphemeralSessionStore {
 
     private fun extractNormalizedHost(url: String): String? {
         if (url.isBlank()) return null
-        return try {
-            URI(url.trim()).host?.lowercase()?.removePrefix("www.")
+        val clean = url.trim().substringBefore('?').substringBefore('#')
+        val withScheme = if (clean.contains("://")) clean else "https://$clean"
+        val fromUri = try {
+            URI(withScheme).host
         } catch (_: Exception) {
             null
         }
+        val host = fromUri ?: Regex("""^[a-zA-Z]+://([^/?#\s:@]+)""").find(withScheme)?.groupValues?.get(1)
+        return host?.lowercase()?.removePrefix("www.")
     }
 
     private fun isSameSiteHost(requestHost: String, allowedHost: String): Boolean {

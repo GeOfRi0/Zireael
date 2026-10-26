@@ -41,6 +41,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -75,6 +76,11 @@ fun MainScreen(viewModel: MainViewModel) {
     val downloads by viewModel.downloads.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val addDialogState by viewModel.addDialogState.collectAsStateWithLifecycle()
+    val ytDlpVersion by viewModel.ytDlpVersion.collectAsStateWithLifecycle()
+    val ytDlpUpdateState by viewModel.ytDlpUpdateState.collectAsStateWithLifecycle()
+    val isAnyDownloadActive = remember(downloads) {
+        downloads.any { it.status.isActiveOrQueued }
+    }
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     var showAddDialog by remember { mutableStateOf(false) }
@@ -224,13 +230,32 @@ fun MainScreen(viewModel: MainViewModel) {
         )
     }
 
+    val errorToastContext = LocalContext.current
+    LaunchedEffect(viewModel) {
+        viewModel.errorEvents.collect { message ->
+            Toast.makeText(errorToastContext, message, Toast.LENGTH_LONG).show()
+        }
+    }
+
     if (showSettingsDialog) {
+        LaunchedEffect(Unit) {
+            viewModel.loadYtDlpVersion()
+            if (ytDlpUpdateState !is YtDlpUpdateUiState.Updating) {
+                viewModel.resetYtDlpUpdateState()
+            }
+        }
         SettingsDialog(
             currentSettings = settings,
+            ytDlpVersion = ytDlpVersion,
+            updateState = ytDlpUpdateState,
+            isDownloading = isAnyDownloadActive,
+            onUpdateYtDlp = { viewModel.updateYtDlp() },
             onSave = { chunks, maxConcurrent ->
                 viewModel.saveSettings(chunks, maxConcurrent)
             },
-            onDismiss = { showSettingsDialog = false }
+            onDismiss = {
+                showSettingsDialog = false
+            }
         )
     }
 
@@ -461,7 +486,7 @@ private fun DownloadItemCard(
                         }
 
                         DownloadStatus.COMPLETED -> {
-                            if (!item.savedUri.isNullOrBlank() && item.savedUri.startsWith("content://")) {
+                            if (!item.savedUri.isNullOrBlank()) {
                                 FilledTonalIconButton(
                                     onClick = {
                                         runCatching {

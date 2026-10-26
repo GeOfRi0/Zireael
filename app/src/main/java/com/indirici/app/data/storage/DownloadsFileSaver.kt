@@ -173,29 +173,44 @@ class DownloadsFileSaver(private val context: Context) {
         return targetFile.toURI().toString()
     }
 
-    private fun sanitizeFileName(raw: String): String {
-        val cleaned = raw.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
-        return cleaned.ifEmpty { "indirilen_dosya_${System.currentTimeMillis()}" }
-    }
+    companion object {
+        internal fun sanitizeFileName(raw: String): String {
+            val stripped = raw.replace(Regex("""(?:\.\.[/\\])+"""), "")
+            val withoutCtrl = stripped.replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_").trim()
+            val base = withoutCtrl.substringBeforeLast('.', withoutCtrl)
+                .trimEnd { it == '.' || it.isWhitespace() || it == '_' }
+                .trimStart { it == '.' || it.isWhitespace() || it == '_' }
+            val ext = if (withoutCtrl.contains('.')) withoutCtrl.substringAfterLast('.', "") else ""
 
-    private fun guessMimeType(fileName: String): String {
-        val ext = fileName.substringAfterLast('.', "").lowercase()
-        return when (ext) {
-            "mp4", "m4v", "fmp4", "m4s" -> "video/mp4"
-            "mkv" -> "video/x-matroska"
-            "mov" -> "video/quicktime"
-            "webm" -> "video/webm"
-            "avi" -> "video/x-msvideo"
-            "wmv" -> "video/x-ms-wmv"
-            "ts", "m2ts", "mts" -> "video/mp2t"
-            "mp3" -> "audio/mpeg"
-            "m4a" -> "audio/mp4"
-            "aac" -> "audio/aac"
-            "wav" -> "audio/wav"
-            "ogg", "oga" -> "audio/ogg"
-            "flac" -> "audio/flac"
-            "opus" -> "audio/opus"
-            else -> "application/octet-stream"
+            val cleaned = when {
+                base.isEmpty() && ext.isNotEmpty() -> "indirilen_dosya_${System.currentTimeMillis()}.$ext"
+                base.isNotEmpty() && ext.isNotEmpty() -> "$base.$ext"
+                base.isNotEmpty() -> base
+                else -> ""
+            }
+
+            return cleaned.ifEmpty { "indirilen_dosya_${System.currentTimeMillis()}" }
+        }
+
+        internal fun guessMimeType(fileName: String): String {
+            val ext = fileName.substringAfterLast('.', "").lowercase()
+            return when (ext) {
+                "mp4", "m4v", "fmp4", "m4s" -> "video/mp4"
+                "mkv" -> "video/x-matroska"
+                "mov" -> "video/quicktime"
+                "webm" -> "video/webm"
+                "avi" -> "video/x-msvideo"
+                "wmv" -> "video/x-ms-wmv"
+                "ts", "m2ts", "mts" -> "video/mp2t"
+                "mp3" -> "audio/mpeg"
+                "m4a" -> "audio/mp4"
+                "aac" -> "audio/aac"
+                "wav" -> "audio/wav"
+                "ogg", "oga" -> "audio/ogg"
+                "flac" -> "audio/flac"
+                "opus" -> "audio/opus"
+                else -> "application/octet-stream"
+            }
         }
     }
 }

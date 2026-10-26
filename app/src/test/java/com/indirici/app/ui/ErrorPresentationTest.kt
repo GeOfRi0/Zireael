@@ -6,6 +6,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.mockito.kotlin.mock
 import java.io.IOException
 import java.net.UnknownHostException
 
@@ -57,7 +58,7 @@ class ErrorPresentationTest {
     fun `mapUpdateErrorToUserMessage maps network errors to friendly connection message`() {
         val unknownHost = UnknownHostException("Unable to resolve host \"api.github.com\"")
         val timedOut = IOException("connect timed out")
-        val timeoutCancellation = TimeoutCancellationException("Timed out waiting for 90000 ms")
+        val timeoutCancellation = mock<TimeoutCancellationException>()
 
         assertEquals(
             "Güncelleme sunucusuna bağlanılamadı. İnternet bağlantınızı kontrol edin.",
